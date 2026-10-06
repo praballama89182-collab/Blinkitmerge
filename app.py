@@ -151,17 +151,16 @@ if uploaded_files:
         else:
             final_df['Week'] = np.nan
 
-        # --- TOP LEVEL DASHBOARD METRICS (INCLUDING ROAS & ACOS) ---
+        # --- TOP LEVEL DASHBOARD METRICS (ACOS REMOVED) ---
         total_sales = final_df['_sales'].sum()
         total_orders = final_df['_orders'].sum()
         total_atc = final_df['_atc'].sum()
         total_budget = final_df['_budget_consumed'].sum()
         
         overall_roas = (total_sales / total_budget) if total_budget > 0 else 0.0
-        overall_acos = ((total_budget / total_sales) * 100) if total_sales > 0 else 0.0
 
         st.markdown("### 📈 Overall Campaign Performance Dashboard")
-        kpi1, kpi2, kpi3, kpi4, kpi5, kpi6 = st.columns(6)
+        kpi1, kpi2, kpi3, kpi4, kpi5 = st.columns(5)
         
         with kpi1:
             st.metric("Total Sales", f"₹{total_sales:,.2f}")
@@ -170,10 +169,8 @@ if uploaded_files:
         with kpi3:
             st.metric("Overall RoAS", f"{overall_roas:.2f}x")
         with kpi4:
-            st.metric("Overall ACoS", f"{overall_acos:.1f}%")
-        with kpi5:
             st.metric("Total Orders", f"{int(total_orders):,}")
-        with kpi6:
+        with kpi5:
             st.metric("Total Add To Cart", f"{int(total_atc):,}")
 
         st.divider()
