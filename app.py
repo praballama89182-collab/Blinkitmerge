@@ -127,7 +127,6 @@ if uploaded_files:
         if date_col:
             final_df['_date_dt'] = pd.to_datetime(final_df[date_col], errors='coerce')
             
-            # Helper to generate date range string per week bucket
             def assign_week_and_range(row):
                 dt = row['_date_dt']
                 if pd.isna(dt):
@@ -151,13 +150,13 @@ if uploaded_files:
         else:
             final_df['Week'] = np.nan
 
-        # --- TOP LEVEL DASHBOARD METRICS (ACOS REMOVED) ---
+        # --- TOP LEVEL DASHBOARD METRICS ---
         total_sales = final_df['_sales'].sum()
         total_orders = final_df['_orders'].sum()
         total_atc = final_df['_atc'].sum()
         total_budget = final_df['_budget_consumed'].sum()
         
-        overall_roas = (total_sales / total_budget) if total_budget > 0 else 0.0
+        overall_roas = round((total_sales / total_budget), 2) if total_budget > 0 else 0.0
 
         st.markdown("### 📈 Overall Campaign Performance Dashboard")
         kpi1, kpi2, kpi3, kpi4, kpi5 = st.columns(5)
@@ -249,10 +248,12 @@ if uploaded_files:
                 'Budget Consumed (₹)': '₹{:,.2f}', 
                 'Impressions': '{:,.0f}', 
                 'Orders': '{:,.0f}', 
-                'ATC': '{:,.0f}'
+                'ATC': '{:,.0f}',
+                'RoAS': '{:.2f}x',
+                'ACoS (%)': '{:.2f}%'
             })
 
-        # --- MAIN TABS INCLUDING RAW PREVIEWS, CONSOLIDATED PREVIEW, AND PERFORMANCE TABS ---
+        # --- MAIN TABS ---
         st.markdown("### 📑 Navigation & Performance Breakdown")
         main_tab1, main_tab2, main_tab3, main_tab4, main_tab5, main_tab6 = st.tabs([
             "📄 Raw Files Preview",
@@ -389,7 +390,7 @@ if uploaded_files:
 
         st.divider()
 
-        # Output Excel Generation
+        # Output Excel Generation (Raw reports remain completely untouched)
         st.subheader("💾 Download Consolidated Excel Workbook")
         
         buffer_multi = io.BytesIO()
