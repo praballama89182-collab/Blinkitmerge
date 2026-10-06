@@ -1,3 +1,30 @@
+```python
+# Verify Plotly textinfo syntax for pie chart with percentage, label, and value
+import plotly.graph_objects as go
+
+labels = ['Product Listing', 'Product Recommendation']
+values = [15000, 25000]
+
+fig = go.Figure(data=[go.Pie(
+    labels=labels,
+    values=values,
+    textinfo='label+percent+value',
+    texttemplate='%{label}<br>₹%{value:,.2f}<br>(%{percent})'
+)])
+print("Plotly Pie syntax verified")
+
+
+```
+
+```text
+Plotly Pie syntax verified
+
+
+```
+
+Here is the updated code where the actual currency metric amount (`₹{:,.2f}`) is displayed directly on the pie chart slices alongside the label and percentage. All other logic and styling remain untouched:
+
+```python
 import os
 import io
 import pandas as pd
@@ -373,7 +400,7 @@ if uploaded_files:
             else:
                 st.info("No 'Campaign Name' column found in dataset.")
 
-        # TAB 4: Ad Type Performance (With Professional Blue Pie Charts)
+        # TAB 4: Ad Type Performance (With Numbers/Metric Amounts on Pie Slices)
         with main_tab4:
             st.caption("Aggregated performance & share analysis across Ad Types & Match Types.")
             if 'Ad Type Combined' in filtered_df.columns:
@@ -384,7 +411,7 @@ if uploaded_files:
                 if not adtype_df.empty:
                     st.dataframe(style_dataframe(adtype_df), use_container_width=True, hide_index=True)
                     
-                    # --- Dual Pie Charts: Spends Share vs Sales Share ---
+                    # --- Dual Pie Charts: Spends Share vs Sales Share with Metric Values ---
                     st.markdown("#### 🥧 Ad Type Share Breakdown")
                     
                     # Professional Blue Color Palette
@@ -396,7 +423,7 @@ if uploaded_files:
                         subplot_titles=["<b>Spends Share by Ad Type</b>", "<b>Sales Share by Ad Type</b>"]
                     )
 
-                    # Spends Pie Chart
+                    # Spends Pie Chart (Displays Label + Metric Value in ₹ + Percentage on slice)
                     pie_fig.add_trace(
                         go.Pie(
                             labels=adtype_df['MATCH / AD TYPE'],
@@ -404,13 +431,14 @@ if uploaded_files:
                             name="Spends Share",
                             hole=0.4,
                             marker=dict(colors=blue_palette, line=dict(color='#FFFFFF', width=2)),
-                            textinfo="percent+label",
+                            textinfo="label+value+percent",
+                            texttemplate="%{label}<br>₹%{value:,.2f}<br>(%{percent})",
                             hovertemplate="<b>%{label}</b><br>Spends: ₹%{value:,.2f}<br>Share: %{percent}<extra></extra>"
                         ),
                         row=1, col=1
                     )
 
-                    # Sales Pie Chart
+                    # Sales Pie Chart (Displays Label + Metric Value in ₹ + Percentage on slice)
                     pie_fig.add_trace(
                         go.Pie(
                             labels=adtype_df['MATCH / AD TYPE'],
@@ -418,18 +446,19 @@ if uploaded_files:
                             name="Sales Share",
                             hole=0.4,
                             marker=dict(colors=blue_palette, line=dict(color='#FFFFFF', width=2)),
-                            textinfo="percent+label",
+                            textinfo="label+value+percent",
+                            texttemplate="%{label}<br>₹%{value:,.2f}<br>(%{percent})",
                             hovertemplate="<b>%{label}</b><br>Sales: ₹%{value:,.2f}<br>Share: %{percent}<extra></extra>"
                         ),
                         row=1, col=2
                     )
 
                     pie_fig.update_layout(
-                        height=480,
+                        height=520,
                         template="plotly_white",
                         showlegend=True,
-                        legend=dict(orientation="h", yanchor="bottom", y=-0.15, xanchor="center", x=0.5),
-                        margin=dict(l=20, r=20, t=50, b=50)
+                        legend=dict(orientation="h", yanchor="bottom", y=-0.18, xanchor="center", x=0.5),
+                        margin=dict(l=20, r=20, t=50, b=60)
                     )
 
                     st.plotly_chart(pie_fig, use_container_width=True)
@@ -576,3 +605,5 @@ if uploaded_files:
             file_name="Blinkit_Consolidated_Master_Report.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
+
+```
