@@ -159,12 +159,22 @@ if uploaded_files:
         else:
             final_df['Week'] = np.nan
 
-        # --- TOP LEVEL DASHBOARD METRICS (6 Metrics in 2 Grid Rows) ---
-        total_impressions = final_df['_impressions'].sum()
-        total_sales = final_df['_sales'].sum()
-        total_orders = final_df['_orders'].sum()
-        total_atc = final_df['_atc'].sum()
-        total_budget = final_df['_budget_consumed'].sum()
+        # --- GLOBAL MONTH FILTER (PLACED BEFORE KPI DASHBOARD) ---
+        st.markdown("### 🔍 Global Dashboard Filters")
+        available_months = ["All Months"] + sorted(list(final_df['Month'].dropna().unique()))
+        selected_month = st.selectbox("Select Month Across Dashboard", available_months)
+
+        # Apply Global Month Filter
+        filtered_df = final_df.copy()
+        if selected_month != "All Months":
+            filtered_df = filtered_df[filtered_df['Month'] == selected_month]
+
+        # --- TOP LEVEL DASHBOARD METRICS (DYNAMIC BASED ON FILTERED_DF) ---
+        total_impressions = filtered_df['_impressions'].sum()
+        total_sales = filtered_df['_sales'].sum()
+        total_orders = filtered_df['_orders'].sum()
+        total_atc = filtered_df['_atc'].sum()
+        total_budget = filtered_df['_budget_consumed'].sum()
         
         overall_roas = round((total_sales / total_budget), 2) if total_budget > 0 else 0.0
 
@@ -187,16 +197,6 @@ if uploaded_files:
             st.metric("Total Add To Cart", f"{int(total_atc):,}")
 
         st.divider()
-
-        # --- GLOBAL MONTH FILTER ---
-        st.markdown("### 🔍 Global Dashboard Filters")
-        available_months = ["All Months"] + sorted(list(final_df['Month'].dropna().unique()))
-        selected_month = st.selectbox("Select Month Across Dashboard", available_months)
-
-        # Apply Global Month Filter
-        filtered_df = final_df.copy()
-        if selected_month != "All Months":
-            filtered_df = filtered_df[filtered_df['Month'] == selected_month]
 
         # Helper function for grouping metrics
         def compute_grouped_table(df_subset, group_col, selected_item="All"):
