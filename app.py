@@ -127,6 +127,18 @@ if uploaded_files:
 
         final_df['_budget_consumed'] = get_numeric_col(final_df, ['Estimated Budget Consumed', 'Budget Consumed', 'Spend'])
 
+        # Unified Ad Type / Targeting Category column
+        # Priority: Match Type -> Targeting Type -> Tab Name
+        ad_type_series = pd.Series(index=final_df.index, dtype=object)
+        for target_col in ['Match Type', 'Targeting Type']:
+            if target_col in final_df.columns:
+                ad_type_series = ad_type_series.fillna(final_df[target_col])
+        
+        if 'Tab Name' in final_df.columns:
+            ad_type_series = ad_type_series.fillna(final_df['Tab Name'])
+            
+        final_df['Ad Type Combined'] = ad_type_series.fillna("Other")
+
         # --- WEEK BUCKET LOGIC (Parse DD-MM-YYYY format) ---
         date_col = None
         for col_candidate in ['Date', 'date', 'Day', 'DATE']:
@@ -135,7 +147,6 @@ if uploaded_files:
                 break
 
         if date_col:
-            # Explicitly parse dayfirst=True for DD-MM-YYYY dates
             final_df['_date_dt'] = pd.to_datetime(final_df[date_col], dayfirst=True, errors='coerce')
             
             def assign_week(row):
@@ -159,7 +170,7 @@ if uploaded_files:
         else:
             final_df['Week'] = np.nan
 
-        # --- GLOBAL MONTH FILTER (PLACED BEFORE KPI DASHBOARD) ---
+        # --- GLOBAL MONTH FILTER ---
         st.markdown("### 🔍 Global Dashboard Filters")
         available_months = ["All Months"] + sorted(list(final_df['Month'].dropna().unique()))
         selected_month = st.selectbox("Select Month Across Dashboard", available_months)
@@ -169,7 +180,7 @@ if uploaded_files:
         if selected_month != "All Months":
             filtered_df = filtered_df[filtered_df['Month'] == selected_month]
 
-        # --- TOP LEVEL DASHBOARD METRICS (DYNAMIC BASED ON FILTERED_DF) ---
+        # --- TOP LEVEL DASHBOARD METRICS ---
         total_impressions = filtered_df['_impressions'].sum()
         total_sales = filtered_df['_sales'].sum()
         total_orders = filtered_df['_orders'].sum()
@@ -227,8 +238,10 @@ if uploaded_files:
                 lambda r: round((r['Budget_Consumed'] / r['Sales']) * 100, 2) if r['Sales'] > 0 else 0.0, axis=1
             )
 
+            display_name = "Ad Type / Match Type" if group_col == 'Ad Type Combined' else group_col.replace('_', ' ').title()
+
             grouped = grouped.rename(columns={
-                group_col: group_col.replace('_', ' ').title(),
+                group_col: display_name,
                 'Budget_Consumed': 'Budget Consumed (₹)',
                 'Sales': 'Sales (₹)'
             })
@@ -289,7 +302,7 @@ if uploaded_files:
         # TAB 2: Consolidated Master Dataset Preview
         with main_tab2:
             st.caption("Preview the combined dataset across all uploaded files before export.")
-            preview_clean_df = final_df.drop(columns=['_impressions', '_direct_atc', '_indirect_atc', '_atc', '_direct_orders', '_indirect_orders', '_orders', '_direct_sales', '_indirect_sales', '_sales', '_budget_consumed', '_date_dt'], errors='ignore')
+            preview_clean_df = final_df.drop(columns=['_impressions', '_direct_atc', '_indirect_atc', '_atc', '_direct_orders', '_indirect_orders', '_orders', '_direct_sales', '_indirect_sales', '_sales', '_budget_consumed', '_date_dt', 'Ad Type Combined'], errors='ignore')
             st.write(f"Total Rows Consolidated: **{len(preview_clean_df):,}**")
             st.dataframe(preview_clean_df.head(100), use_container_width=True)
 
@@ -308,20 +321,20 @@ if uploaded_files:
             else:
                 st.info("No 'Campaign Name' column found in dataset.")
 
-        # TAB 4: Ad Type Performance
+        # TAB 4: Ad Type Performance (Updated to include Match Types & Targeting Types)
         with main_tab4:
-            st.caption("Aggregated performance across all Ad Types / Sheet Tabs.")
-            if 'Tab Name' in filtered_df.columns:
-                adtype_options = ["All"] + sorted([str(x) for x in filtered_df['Tab Name'].dropna().unique()])
-                selected_adtype = st.selectbox("Select or Search Ad Type / Tab Name:", adtype_options, key="adtype_filter")
+            st.caption("Aggregated performance across Ad Types & Match Types (e.g. Continue Browsing Recommendation, Keyword, Next Product Recommendation, Recommendations, Retargeting, Similar Products Recommendation).")
+            if 'Ad Type Combined' in filtered_df.columns:
+                adtype_options = ["All"] + sorted([str(x) for x in filtered_df['Ad Type Combined'].dropna().unique()])
+                selected_adtype = st.selectbox("Select or Search Ad Type / Targeting Type:", adtype_options, key="adtype_filter")
                 
-                adtype_df = compute_grouped_table(filtered_df, 'Tab Name', selected_adtype)
+                adtype_df = compute_grouped_table(filtered_df, 'Ad Type Combined', selected_adtype)
                 if not adtype_df.empty:
                     st.dataframe(style_dataframe(adtype_df), use_container_width=True, hide_index=True)
                 else:
                     st.info("No Ad Type data matching the selected criteria.")
             else:
-                st.info("No Ad Type / Tab Name data found.")
+                st.info("No Ad Type data found.")
 
         # TAB 5: Keyword / Search Term Performance
         with main_tab5:
@@ -430,7 +443,7 @@ if uploaded_files:
                 clean_sheet_name = raw_tab_name[:31]
                 combined_raw_tab_df.to_excel(writer, sheet_name=clean_sheet_name, index=False)
             
-            master_export_df = final_df.drop(columns=['_impressions', '_direct_atc', '_indirect_atc', '_atc', '_direct_orders', '_indirect_orders', '_orders', '_direct_sales', '_indirect_sales', '_sales', '_budget_consumed', '_date_dt'], errors='ignore')
+            master_export_df = final_df.drop(columns=['_impressions', '_direct_atc', '_indirect_atc', '_atc', '_direct_orders', '_indirect_orders', '_orders', '_direct_sales', '_indirect_sales', '_sales', '_budget_consumed', '_date_dt', 'Ad Type Combined'], errors='ignore')
             master_export_df.to_excel(writer, sheet_name='Consolidated_Master', index=False)
             
         buffer_multi.seek(0)
