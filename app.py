@@ -128,7 +128,6 @@ if uploaded_files:
         final_df['_budget_consumed'] = get_numeric_col(final_df, ['Estimated Budget Consumed', 'Budget Consumed', 'Spend'])
 
         # Unified Ad Type / Targeting Category column
-        # Priority: Match Type -> Targeting Type -> Tab Name
         ad_type_series = pd.Series(index=final_df.index, dtype=object)
         for target_col in ['Match Type', 'Targeting Type']:
             if target_col in final_df.columns:
@@ -209,7 +208,7 @@ if uploaded_files:
 
         st.divider()
 
-        # Helper function for grouping metrics
+        # Helper function for grouping metrics with specific column structure
         def compute_grouped_table(df_subset, group_col, selected_item="All"):
             if group_col not in df_subset.columns:
                 return pd.DataFrame()
@@ -224,27 +223,40 @@ if uploaded_files:
                 return pd.DataFrame()
 
             grouped = df_working.groupby(group_col).agg(
-                Impressions=('_impressions', 'sum'),
-                Orders=('_orders', 'sum'),
-                Sales=('_sales', 'sum'),
+                IMPRESSIONS=('_impressions', 'sum'),
                 ATC=('_atc', 'sum'),
-                Budget_Consumed=('_budget_consumed', 'sum')
+                ORDERS=('_orders', 'sum'),
+                SPENDS=('_budget_consumed', 'sum'),
+                SALES=('_sales', 'sum')
             ).reset_index()
 
-            grouped['RoAS'] = grouped.apply(
-                lambda r: round(r['Sales'] / r['Budget_Consumed'], 2) if r['Budget_Consumed'] > 0 else 0.0, axis=1
+            # CPM = (Spends / Impressions) * 1000
+            grouped['CPM'] = grouped.apply(
+                lambda r: round((r['SPENDS'] / r['IMPRESSIONS']) * 1000, 2) if r['IMPRESSIONS'] > 0 else 0.0, axis=1
             )
-            grouped['ACoS (%)'] = grouped.apply(
-                lambda r: round((r['Budget_Consumed'] / r['Sales']) * 100, 2) if r['Sales'] > 0 else 0.0, axis=1
+            
+            # ROAS = Sales / Spends
+            grouped['ROAS'] = grouped.apply(
+                lambda r: round(r['SALES'] / r['SPENDS'], 2) if r['SPENDS'] > 0 else 0.0, axis=1
             )
 
-            display_name = "Ad Type / Match Type" if group_col == 'Ad Type Combined' else group_col.replace('_', ' ').title()
+            # ACOS = (Spends / Sales) * 100
+            grouped['ACOS'] = grouped.apply(
+                lambda r: round((r['SPENDS'] / r['SALES']) * 100, 2) if r['SALES'] > 0 else 0.0, axis=1
+            )
 
-            grouped = grouped.rename(columns={
-                group_col: display_name,
-                'Budget_Consumed': 'Budget Consumed (₹)',
-                'Sales': 'Sales (₹)'
-            })
+            display_name = group_col.upper()
+            if group_col == 'Campaign Name':
+                display_name = 'CAMPAIGN NAME'
+            elif group_col == 'Ad Type Combined':
+                display_name = 'MATCH / AD TYPE'
+
+            grouped = grouped.rename(columns={group_col: display_name})
+
+            # Reorder columns explicitly: [Entity, IMPRESSIONS, CPM, ATC, ORDERS, SPENDS, SALES, ROAS, ACOS]
+            col_order = [display_name, 'IMPRESSIONS', 'CPM', 'ATC', 'ORDERS', 'SPENDS', 'SALES', 'ROAS', 'ACOS']
+            grouped = grouped.reindex(columns=col_order)
+
             return grouped
 
         def style_roas(val):
@@ -259,23 +271,29 @@ if uploaded_files:
 
         def style_dataframe(df):
             styler = df.style
-            if hasattr(styler, 'map'):
-                styler = styler.map(style_roas, subset=['RoAS'])
-            else:
-                styler = styler.applymap(style_roas, subset=['RoAS'])
+            if 'ROAS' in df.columns:
+                if hasattr(styler, 'map'):
+                    styler = styler.map(style_roas, subset=['ROAS'])
+                else:
+                    styler = styler.applymap(style_roas, subset=['ROAS'])
             
             # Middle/Center align all cell contents
             styler = styler.set_properties(**{'text-align': 'center'})
             
-            return styler.format({
-                'Sales (₹)': '₹{:,.2f}', 
-                'Budget Consumed (₹)': '₹{:,.2f}', 
-                'Impressions': '{:,.0f}', 
-                'Orders': '{:,.0f}', 
+            format_dict = {
+                'SALES': '₹{:,.2f}', 
+                'SPENDS': '₹{:,.2f}', 
+                'CPM': '₹{:,.2f}',
+                'IMPRESSIONS': '{:,.0f}', 
+                'ORDERS': '{:,.0f}', 
                 'ATC': '{:,.0f}',
-                'RoAS': '{:.2f}x',
-                'ACoS (%)': '{:.2f}%'
-            })
+                'ROAS': '{:.2f}x',
+                'ACOS': '{:.2f}%'
+            }
+            # Only format columns that actually exist in the dataframe
+            active_formats = {k: v for k, v in format_dict.items() if k in df.columns}
+            
+            return styler.format(active_formats)
 
         # --- MAIN NAVIGATION TABS ---
         st.markdown("### 📑 Navigation & Performance Breakdown")
@@ -316,14 +334,24 @@ if uploaded_files:
                 campaign_df = compute_grouped_table(filtered_df, 'Campaign Name', selected_campaign)
                 if not campaign_df.empty:
                     st.dataframe(style_dataframe(campaign_df), use_container_width=True, hide_index=True)
+                    
+                    # Download CSV Button for Campaign Data
+                    csv_campaign = campaign_df.to_csv(index=False).encode('utf-8')
+                    st.download_button(
+                        label="📥 Download Campaign Performance CSV",
+                        data=csv_campaign,
+                        file_name="Campaign_Performance_Report.csv",
+                        mime="text/csv",
+                        key="btn_dl_campaign"
+                    )
                 else:
                     st.info("No campaign data matching the selected criteria.")
             else:
                 st.info("No 'Campaign Name' column found in dataset.")
 
-        # TAB 4: Ad Type Performance (Updated to include Match Types & Targeting Types)
+        # TAB 4: Ad Type Performance
         with main_tab4:
-            st.caption("Aggregated performance across Ad Types & Match Types (e.g. Continue Browsing Recommendation, Keyword, Next Product Recommendation, Recommendations, Retargeting, Similar Products Recommendation).")
+            st.caption("Aggregated performance across Ad Types & Match Types.")
             if 'Ad Type Combined' in filtered_df.columns:
                 adtype_options = ["All"] + sorted([str(x) for x in filtered_df['Ad Type Combined'].dropna().unique()])
                 selected_adtype = st.selectbox("Select or Search Ad Type / Targeting Type:", adtype_options, key="adtype_filter")
@@ -331,6 +359,16 @@ if uploaded_files:
                 adtype_df = compute_grouped_table(filtered_df, 'Ad Type Combined', selected_adtype)
                 if not adtype_df.empty:
                     st.dataframe(style_dataframe(adtype_df), use_container_width=True, hide_index=True)
+                    
+                    # Download CSV Button for Ad Type Data
+                    csv_adtype = adtype_df.to_csv(index=False).encode('utf-8')
+                    st.download_button(
+                        label="📥 Download Ad Type Performance CSV",
+                        data=csv_adtype,
+                        file_name="Ad_Type_Performance_Report.csv",
+                        mime="text/csv",
+                        key="btn_dl_adtype"
+                    )
                 else:
                     st.info("No Ad Type data matching the selected criteria.")
             else:
@@ -352,6 +390,16 @@ if uploaded_files:
                 search_df = compute_grouped_table(filtered_df, kw_col, selected_kw)
                 if not search_df.empty:
                     st.dataframe(style_dataframe(search_df), use_container_width=True, hide_index=True, height=500)
+                    
+                    # Download CSV Button for Search Term Data
+                    csv_search = search_df.to_csv(index=False).encode('utf-8')
+                    st.download_button(
+                        label="📥 Download Search Term Performance CSV",
+                        data=csv_search,
+                        file_name="Search_Term_Performance_Report.csv",
+                        mime="text/csv",
+                        key="btn_dl_search"
+                    )
                 else:
                     st.info("No search term data matching the selected criteria.")
             else:
@@ -366,62 +414,62 @@ if uploaded_files:
                 
                 # Explicit ordering Week 1 to Week 5
                 week_order = ['Week 1', 'Week 2', 'Week 3', 'Week 4', 'Week 5']
-                weekly_df['Week_Cat'] = pd.Categorical(weekly_df['Week'], categories=week_order, ordered=True)
+                weekly_df['Week_Cat'] = pd.Categorical(weekly_df['WEEK'], categories=week_order, ordered=True)
                 weekly_df = weekly_df.sort_values('Week_Cat').drop(columns=['Week_Cat'])
 
                 # Plotly Chart
                 fig = make_subplots(specs=[[{"secondary_y": True}]])
 
-                # Budget Consumed Bar
+                # SPENDS Bar
                 fig.add_trace(
                     go.Bar(
-                        x=weekly_df['Week'],
-                        y=weekly_df['Budget Consumed (₹)'],
-                        name='Budget Consumed (₹)',
+                        x=weekly_df['WEEK'],
+                        y=weekly_df['SPENDS'],
+                        name='Spends (₹)',
                         marker=dict(color='#4285F4', line=dict(color='#1A73E8', width=1.5)),
-                        text=[f"₹{v:,.0f}" for v in weekly_df['Budget Consumed (₹)']],
+                        text=[f"₹{v:,.0f}" for v in weekly_df['SPENDS']],
                         textposition='auto'
                     ),
                     secondary_y=False
                 )
 
-                # Sales Bar
+                # SALES Bar
                 fig.add_trace(
                     go.Bar(
-                        x=weekly_df['Week'],
-                        y=weekly_df['Sales (₹)'],
+                        x=weekly_df['WEEK'],
+                        y=weekly_df['SALES'],
                         name='Sales (₹)',
                         marker=dict(color='#34A853', line=dict(color='#1E8E3E', width=1.5)),
-                        text=[f"₹{v:,.0f}" for v in weekly_df['Sales (₹)']],
+                        text=[f"₹{v:,.0f}" for v in weekly_df['SALES']],
                         textposition='auto'
                     ),
                     secondary_y=False
                 )
 
-                # RoAS Trend Line
+                # ROAS Trend Line
                 fig.add_trace(
                     go.Scatter(
-                        x=weekly_df['Week'],
-                        y=weekly_df['RoAS'],
-                        name='RoAS',
+                        x=weekly_df['WEEK'],
+                        y=weekly_df['ROAS'],
+                        name='ROAS',
                         mode='lines+markers+text',
                         line=dict(color='#EA4335', width=3),
                         marker=dict(size=8, color='#EA4335'),
-                        text=[f"{v:.2f}x" for v in weekly_df['RoAS']],
+                        text=[f"{v:.2f}x" for v in weekly_df['ROAS']],
                         textposition='top center'
                     ),
                     secondary_y=True
                 )
 
                 fig.update_layout(
-                    title=dict(text="📊 Weekly Budget Spent vs Sales & RoAS Trend", font=dict(size=18, color="#202124")),
+                    title=dict(text="📊 Weekly Budget Spent vs Sales & ROAS Trend", font=dict(size=18, color="#202124")),
                     barmode='group',
                     template='plotly_white',
                     height=520,
                     legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
                     xaxis=dict(title="Week Bucket"),
                     yaxis=dict(title="Amount (₹)", showgrid=True),
-                    yaxis2=dict(title="RoAS", overlaying="y", side="right", showgrid=False)
+                    yaxis2=dict(title="ROAS", overlaying="y", side="right", showgrid=False)
                 )
 
                 st.plotly_chart(fig, use_container_width=True)
