@@ -12,6 +12,16 @@ st.set_page_config(
     layout="wide"
 )
 
+# Custom CSS for center-aligning dataframe headers & cells
+st.markdown("""
+<style>
+    /* Center align headers and cells in Streamlit dataframes */
+    [data-testid="stDataFrame"] th, [data-testid="stDataFrame"] td {
+        text-align: center !important;
+    }
+</style>
+""", unsafe_allow_html=True)
+
 st.title("📊 Blinkit Ad Report Merger & Analytics")
 st.write("Upload up to 5 monthly Excel ad campaign spreadsheets (.xlsx, .xls, .xlsb, .xlsm). Preview raw & consolidated sheets, inspect campaign performance, and view weekly trend lines.")
 
@@ -117,7 +127,7 @@ if uploaded_files:
 
         final_df['_budget_consumed'] = get_numeric_col(final_df, ['Estimated Budget Consumed', 'Budget Consumed', 'Spend'])
 
-        # --- WEEK BUCKET & DATE RANGE MAPPING LOGIC ---
+        # --- WEEK BUCKET LOGIC (Parse DD-MM-YYYY format) ---
         date_col = None
         for col_candidate in ['Date', 'date', 'Day', 'DATE']:
             if col_candidate in final_df.columns:
@@ -125,32 +135,32 @@ if uploaded_files:
                 break
 
         if date_col:
-            final_df['_date_dt'] = pd.to_datetime(final_df[date_col], errors='coerce')
+            # Explicitly parse dayfirst=True for DD-MM-YYYY dates
+            final_df['_date_dt'] = pd.to_datetime(final_df[date_col], dayfirst=True, errors='coerce')
             
-            def assign_week_and_range(row):
+            def assign_week(row):
                 dt = row['_date_dt']
                 if pd.isna(dt):
                     return np.nan
                 day = dt.day
-                month_str = dt.strftime('%b')
-                
                 if 1 <= day <= 7:
-                    return f"Week 1 ({month_str} 01 - {month_str} 07)"
+                    return "Week 1"
                 elif 8 <= day <= 14:
-                    return f"Week 2 ({month_str} 08 - {month_str} 14)"
+                    return "Week 2"
                 elif 15 <= day <= 21:
-                    return f"Week 3 ({month_str} 15 - {month_str} 21)"
+                    return "Week 3"
                 elif 22 <= day <= 28:
-                    return f"Week 4 ({month_str} 22 - {month_str} 28)"
+                    return "Week 4"
                 elif day >= 29:
-                    return f"Week 5 ({month_str} 29+)"
+                    return "Week 5"
                 return np.nan
 
-            final_df['Week'] = final_df.apply(assign_week_and_range, axis=1)
+            final_df['Week'] = final_df.apply(assign_week, axis=1)
         else:
             final_df['Week'] = np.nan
 
-        # --- TOP LEVEL DASHBOARD METRICS ---
+        # --- TOP LEVEL DASHBOARD METRICS (6 Metrics in 2 Grid Rows) ---
+        total_impressions = final_df['_impressions'].sum()
         total_sales = final_df['_sales'].sum()
         total_orders = final_df['_orders'].sum()
         total_atc = final_df['_atc'].sum()
@@ -159,48 +169,45 @@ if uploaded_files:
         overall_roas = round((total_sales / total_budget), 2) if total_budget > 0 else 0.0
 
         st.markdown("### 📈 Overall Campaign Performance Dashboard")
-        kpi1, kpi2, kpi3, kpi4, kpi5 = st.columns(5)
         
-        with kpi1:
+        row1_col1, row1_col2, row1_col3 = st.columns(3)
+        with row1_col1:
+            st.metric("Total Impressions", f"{int(total_impressions):,}")
+        with row1_col2:
             st.metric("Total Sales", f"₹{total_sales:,.2f}")
-        with kpi2:
+        with row1_col3:
             st.metric("Total Budget Consumed", f"₹{total_budget:,.2f}")
-        with kpi3:
+
+        row2_col1, row2_col2, row2_col3 = st.columns(3)
+        with row2_col1:
             st.metric("Overall RoAS", f"{overall_roas:.2f}x")
-        with kpi4:
+        with row2_col2:
             st.metric("Total Orders", f"{int(total_orders):,}")
-        with kpi5:
+        with row2_col3:
             st.metric("Total Add To Cart", f"{int(total_atc):,}")
 
         st.divider()
 
-        # --- FILTERS ABOVE MAIN TABS ---
-        st.markdown("### 🔍 Dashboard Filters & Search")
-        filter_col1, filter_col2 = st.columns([1, 2])
-        
+        # --- GLOBAL MONTH FILTER ---
+        st.markdown("### 🔍 Global Dashboard Filters")
         available_months = ["All Months"] + sorted(list(final_df['Month'].dropna().unique()))
-        
-        with filter_col1:
-            selected_month = st.selectbox("Select Month", available_months)
-        
-        with filter_col2:
-            search_query = st.text_input("Search Across Campaigns / Keywords / Match Types", "").strip()
+        selected_month = st.selectbox("Select Month Across Dashboard", available_months)
 
-        # Apply Month Filter
+        # Apply Global Month Filter
         filtered_df = final_df.copy()
         if selected_month != "All Months":
             filtered_df = filtered_df[filtered_df['Month'] == selected_month]
 
         # Helper function for grouping metrics
-        def compute_grouped_table(df_subset, group_col, search_term=None):
+        def compute_grouped_table(df_subset, group_col, selected_item="All"):
             if group_col not in df_subset.columns:
                 return pd.DataFrame()
             
             df_working = df_subset.dropna(subset=[group_col]).copy()
             df_working[group_col] = df_working[group_col].astype(str)
             
-            if search_term:
-                df_working = df_working[df_working[group_col].str.contains(search_term, case=False, na=False)]
+            if selected_item and selected_item != "All":
+                df_working = df_working[df_working[group_col] == selected_item]
             
             if df_working.empty:
                 return pd.DataFrame()
@@ -231,9 +238,9 @@ if uploaded_files:
             try:
                 val_float = float(val)
                 if val_float < 1.0:
-                    return 'background-color: #ffcdd2; color: #b71c1c; font-weight: bold;'
+                    return 'background-color: #ffcdd2; color: #b71c1c; font-weight: bold; text-align: center;'
                 else:
-                    return 'background-color: #c8e6c9; color: #1b5e20; font-weight: bold;'
+                    return 'background-color: #c8e6c9; color: #1b5e20; font-weight: bold; text-align: center;'
             except:
                 return ''
 
@@ -243,6 +250,10 @@ if uploaded_files:
                 styler = styler.map(style_roas, subset=['RoAS'])
             else:
                 styler = styler.applymap(style_roas, subset=['RoAS'])
+            
+            # Middle/Center align all cell contents
+            styler = styler.set_properties(**{'text-align': 'center'})
+            
             return styler.format({
                 'Sales (₹)': '₹{:,.2f}', 
                 'Budget Consumed (₹)': '₹{:,.2f}', 
@@ -253,7 +264,7 @@ if uploaded_files:
                 'ACoS (%)': '{:.2f}%'
             })
 
-        # --- MAIN TABS ---
+        # --- MAIN NAVIGATION TABS ---
         st.markdown("### 📑 Navigation & Performance Breakdown")
         main_tab1, main_tab2, main_tab3, main_tab4, main_tab5, main_tab6 = st.tabs([
             "📄 Raw Files Preview",
@@ -284,25 +295,37 @@ if uploaded_files:
 
         # TAB 3: Campaign Performance
         with main_tab3:
-            st.caption("Aggregated performance metrics per campaign. Click any column header to toggle ascending/descending sort.")
-            campaign_df = compute_grouped_table(filtered_df, 'Campaign Name', search_query)
-            if not campaign_df.empty:
-                st.dataframe(style_dataframe(campaign_df), use_container_width=True, hide_index=True)
+            st.caption("Aggregated performance metrics per campaign.")
+            if 'Campaign Name' in filtered_df.columns:
+                campaign_options = ["All"] + sorted([str(x) for x in filtered_df['Campaign Name'].dropna().unique()])
+                selected_campaign = st.selectbox("Select or Search Campaign:", campaign_options, key="campaign_filter")
+                
+                campaign_df = compute_grouped_table(filtered_df, 'Campaign Name', selected_campaign)
+                if not campaign_df.empty:
+                    st.dataframe(style_dataframe(campaign_df), use_container_width=True, hide_index=True)
+                else:
+                    st.info("No campaign data matching the selected criteria.")
             else:
-                st.info("No campaign data matching the filter criteria.")
+                st.info("No 'Campaign Name' column found in dataset.")
 
         # TAB 4: Ad Type Performance
         with main_tab4:
-            st.caption("Aggregated performance across all Ad Types / Sheet Tabs present in the dataset.")
-            adtype_df = compute_grouped_table(filtered_df, 'Tab Name', search_query)
-            if not adtype_df.empty:
-                st.dataframe(style_dataframe(adtype_df), use_container_width=True, hide_index=True)
+            st.caption("Aggregated performance across all Ad Types / Sheet Tabs.")
+            if 'Tab Name' in filtered_df.columns:
+                adtype_options = ["All"] + sorted([str(x) for x in filtered_df['Tab Name'].dropna().unique()])
+                selected_adtype = st.selectbox("Select or Search Ad Type / Tab Name:", adtype_options, key="adtype_filter")
+                
+                adtype_df = compute_grouped_table(filtered_df, 'Tab Name', selected_adtype)
+                if not adtype_df.empty:
+                    st.dataframe(style_dataframe(adtype_df), use_container_width=True, hide_index=True)
+                else:
+                    st.info("No Ad Type data matching the selected criteria.")
             else:
-                st.info("No Ad Type data matching the filter criteria.")
+                st.info("No Ad Type / Tab Name data found.")
 
         # TAB 5: Keyword / Search Term Performance
         with main_tab5:
-            st.caption("Performance across search terms / target keywords (downward scrollable).")
+            st.caption("Performance across search terms / target keywords.")
             kw_col = None
             for col_candidate in ['Search Term', 'Keyword', 'Targeting Value']:
                 if col_candidate in filtered_df.columns:
@@ -310,21 +333,28 @@ if uploaded_files:
                     break
             
             if kw_col:
-                search_df = compute_grouped_table(filtered_df, kw_col, search_query)
+                kw_options = ["All"] + sorted([str(x) for x in filtered_df[kw_col].dropna().unique()])
+                selected_kw = st.selectbox(f"Select or Search {kw_col}:", kw_options, key="kw_filter")
+                
+                search_df = compute_grouped_table(filtered_df, kw_col, selected_kw)
                 if not search_df.empty:
                     st.dataframe(style_dataframe(search_df), use_container_width=True, hide_index=True, height=500)
                 else:
-                    st.info("No search term data matching the filter criteria.")
+                    st.info("No search term data matching the selected criteria.")
             else:
                 st.info("No Search Term or Keyword column found in the dataset.")
 
-        # TAB 6: Weekly Performance Trend with Date Ranges
+        # TAB 6: Weekly Performance Trend
         with main_tab6:
-            st.caption("Weekly aggregated metrics broken down by explicit date range.")
+            st.caption("Weekly aggregated performance trend (Week 1 through Week 5).")
             
             if 'Week' in filtered_df.columns and filtered_df['Week'].notna().any():
-                weekly_df = compute_grouped_table(filtered_df, 'Week', None)
-                weekly_df = weekly_df.sort_values('Week')
+                weekly_df = compute_grouped_table(filtered_df, 'Week', "All")
+                
+                # Explicit ordering Week 1 to Week 5
+                week_order = ['Week 1', 'Week 2', 'Week 3', 'Week 4', 'Week 5']
+                weekly_df['Week_Cat'] = pd.Categorical(weekly_df['Week'], categories=week_order, ordered=True)
+                weekly_df = weekly_df.sort_values('Week_Cat').drop(columns=['Week_Cat'])
 
                 # Plotly Chart
                 fig = make_subplots(specs=[[{"secondary_y": True}]])
@@ -376,7 +406,7 @@ if uploaded_files:
                     template='plotly_white',
                     height=520,
                     legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-                    xaxis=dict(title="Week & Date Range"),
+                    xaxis=dict(title="Week Bucket"),
                     yaxis=dict(title="Amount (₹)", showgrid=True),
                     yaxis2=dict(title="RoAS", overlaying="y", side="right", showgrid=False)
                 )
@@ -390,7 +420,7 @@ if uploaded_files:
 
         st.divider()
 
-        # Output Excel Generation (Raw reports remain completely untouched)
+        # Output Excel Generation (Raw reports remain untouched)
         st.subheader("💾 Download Consolidated Excel Workbook")
         
         buffer_multi = io.BytesIO()
