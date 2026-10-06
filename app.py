@@ -64,7 +64,7 @@ if uploaded_files:
     consolidated_raw_tabs = {}  # {sheet_name: [df1, df2, ...]}
 
     for uploaded_file in uploaded_files:
-        month_name = os.path.splitext(uploaded_file.name)[0].upper()
+        fallback_month_name = os.path.splitext(uploaded_file.name)[0].upper()
         raw_files_dict[uploaded_file.name] = {}
         
         try:
@@ -75,12 +75,22 @@ if uploaded_files:
                 # Store raw sheet preview
                 raw_files_dict[uploaded_file.name][sheet_name] = df.copy()
                 
+                # --- Dynamic Month Derivation from Date Column ---
+                date_col = None
+                for col_candidate in ['Date', 'date', 'Day', 'DATE']:
+                    if col_candidate in df.columns:
+                        date_col = col_candidate
+                        break
+
+                if date_col:
+                    dt_series = pd.to_datetime(df[date_col], dayfirst=True, errors='coerce')
+                    month_series = dt_series.dt.strftime('%B').str.upper()
+                    df['Month'] = month_series.fillna(fallback_month_name)
+                else:
+                    df['Month'] = fallback_month_name
+
                 # Raw tab copy for consolidated output workbook
                 df_raw = df.copy()
-                if 'Month' not in df_raw.columns:
-                    df_raw.insert(0, 'Month', month_name)
-                else:
-                    df_raw['Month'] = month_name
                 
                 if sheet_name not in consolidated_raw_tabs:
                     consolidated_raw_tabs[sheet_name] = []
@@ -92,7 +102,13 @@ if uploaded_files:
                     if 'Targeting Type' in df_consolidated.columns:
                         df_consolidated['Match Type'] = df_consolidated['Targeting Type']
                 
-                df_consolidated.insert(0, 'Month', month_name)
+                # Reposition Month and Tab Name at the beginning
+                if 'Month' in df_consolidated.columns:
+                    col_month = df_consolidated.pop('Month')
+                    df_consolidated.insert(0, 'Month', col_month)
+                else:
+                    df_consolidated.insert(0, 'Month', fallback_month_name)
+                    
                 df_consolidated.insert(1, 'Tab Name', sheet_name)
                 consolidated_dfs.append(df_consolidated)
         except Exception as e:
@@ -357,9 +373,9 @@ if uploaded_files:
             else:
                 st.info("No 'Campaign Name' column found in dataset.")
 
-        # TAB 4: Ad Type Performance
+        # TAB 4: Ad Type Performance (With Professional Blue Pie Charts)
         with main_tab4:
-            st.caption("Aggregated performance across Ad Types & Match Types.")
+            st.caption("Aggregated performance & share analysis across Ad Types & Match Types.")
             if 'Ad Type Combined' in filtered_df.columns:
                 adtype_options = ["All"] + sorted([str(x) for x in filtered_df['Ad Type Combined'].dropna().unique()])
                 selected_adtype = st.selectbox("Select or Search Ad Type / Targeting Type:", adtype_options, key="adtype_filter")
@@ -368,6 +384,56 @@ if uploaded_files:
                 if not adtype_df.empty:
                     st.dataframe(style_dataframe(adtype_df), use_container_width=True, hide_index=True)
                     
+                    # --- Dual Pie Charts: Spends Share vs Sales Share ---
+                    st.markdown("#### 🥧 Ad Type Share Breakdown")
+                    
+                    # Professional Blue Color Palette
+                    blue_palette = ['#03045E', '#0077B6', '#0096C7', '#00B4D8', '#48CAE4', '#90E0EF', '#ADE8F4', '#CAF0F8']
+                    
+                    pie_fig = make_subplots(
+                        rows=1, cols=2,
+                        specs=[[{"type": "domain"}, {"type": "domain"}]],
+                        subplot_titles=["<b>Spends Share by Ad Type</b>", "<b>Sales Share by Ad Type</b>"]
+                    )
+
+                    # Spends Pie Chart
+                    pie_fig.add_trace(
+                        go.Pie(
+                            labels=adtype_df['MATCH / AD TYPE'],
+                            values=adtype_df['SPENDS'],
+                            name="Spends Share",
+                            hole=0.4,
+                            marker=dict(colors=blue_palette, line=dict(color='#FFFFFF', width=2)),
+                            textinfo="percent+label",
+                            hovertemplate="<b>%{label}</b><br>Spends: ₹%{value:,.2f}<br>Share: %{percent}<extra></extra>"
+                        ),
+                        row=1, col=1
+                    )
+
+                    # Sales Pie Chart
+                    pie_fig.add_trace(
+                        go.Pie(
+                            labels=adtype_df['MATCH / AD TYPE'],
+                            values=adtype_df['SALES'],
+                            name="Sales Share",
+                            hole=0.4,
+                            marker=dict(colors=blue_palette, line=dict(color='#FFFFFF', width=2)),
+                            textinfo="percent+label",
+                            hovertemplate="<b>%{label}</b><br>Sales: ₹%{value:,.2f}<br>Share: %{percent}<extra></extra>"
+                        ),
+                        row=1, col=2
+                    )
+
+                    pie_fig.update_layout(
+                        height=480,
+                        template="plotly_white",
+                        showlegend=True,
+                        legend=dict(orientation="h", yanchor="bottom", y=-0.15, xanchor="center", x=0.5),
+                        margin=dict(l=20, r=20, t=50, b=50)
+                    )
+
+                    st.plotly_chart(pie_fig, use_container_width=True)
+
                     # Download XLSX Button for Ad Type Data
                     excel_adtype = convert_df_to_excel(adtype_df, sheet_name="Ad_Type_Performance")
                     st.download_button(
