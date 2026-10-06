@@ -54,12 +54,19 @@ if uploaded_files:
             for sheet_name in xls.sheet_names:
                 df = pd.read_excel(xls, sheet_name=sheet_name)
                 
-                # Dynamic unique tab naming for multi-file raw tabs (Excel max sheet name length is 31 chars)
+                # Raw tab preservation with month prefix (Excel max sheet name length is 31 chars)
                 unique_tab_label = f"{month_name}_{sheet_name}"[:31]
                 raw_tabs_dict[unique_tab_label] = df.copy()
                 
-                # Insert tracking columns for consolidated view
+                # Copy dataframe for consolidated view
                 df_consolidated = df.copy()
+                
+                # Rule: For PRODUCT_RECOMMENDATION, set Match Type exactly equal to Targeting Type
+                if sheet_name.strip().upper() == 'PRODUCT_RECOMMENDATION':
+                    if 'Targeting Type' in df_consolidated.columns:
+                        df_consolidated['Match Type'] = df_consolidated['Targeting Type']
+                
+                # Insert tracking columns for consolidated view
                 df_consolidated.insert(0, 'Month', month_name)
                 df_consolidated.insert(1, 'Tab Name', sheet_name)
                 consolidated_dfs.append(df_consolidated)
