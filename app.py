@@ -25,6 +25,14 @@ st.markdown("""
 st.title("📊 Blinkit Ad Report Merger & Analytics")
 st.write("Upload up to 5 monthly Excel ad campaign spreadsheets (.xlsx, .xls, .xlsb, .xlsm). Preview raw & consolidated sheets, inspect campaign performance, and view weekly trend lines.")
 
+# Helper function to convert dataframe to downloadable Excel bytes
+def convert_df_to_excel(df, sheet_name="Performance"):
+    buffer = io.BytesIO()
+    with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+        df.to_excel(writer, sheet_name=sheet_name, index=False)
+    buffer.seek(0)
+    return buffer.getvalue()
+
 # 5 Dedicated Upload Boxes
 col1, col2, col3, col4, col5 = st.columns(5)
 
@@ -335,13 +343,13 @@ if uploaded_files:
                 if not campaign_df.empty:
                     st.dataframe(style_dataframe(campaign_df), use_container_width=True, hide_index=True)
                     
-                    # Download CSV Button for Campaign Data
-                    csv_campaign = campaign_df.to_csv(index=False).encode('utf-8')
+                    # Download XLSX Button for Campaign Data
+                    excel_campaign = convert_df_to_excel(campaign_df, sheet_name="Campaign_Performance")
                     st.download_button(
-                        label="📥 Download Campaign Performance CSV",
-                        data=csv_campaign,
-                        file_name="Campaign_Performance_Report.csv",
-                        mime="text/csv",
+                        label="📥 Download Campaign Performance Excel (.xlsx)",
+                        data=excel_campaign,
+                        file_name="Campaign_Performance_Report.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                         key="btn_dl_campaign"
                     )
                 else:
@@ -360,13 +368,13 @@ if uploaded_files:
                 if not adtype_df.empty:
                     st.dataframe(style_dataframe(adtype_df), use_container_width=True, hide_index=True)
                     
-                    # Download CSV Button for Ad Type Data
-                    csv_adtype = adtype_df.to_csv(index=False).encode('utf-8')
+                    # Download XLSX Button for Ad Type Data
+                    excel_adtype = convert_df_to_excel(adtype_df, sheet_name="Ad_Type_Performance")
                     st.download_button(
-                        label="📥 Download Ad Type Performance CSV",
-                        data=csv_adtype,
-                        file_name="Ad_Type_Performance_Report.csv",
-                        mime="text/csv",
+                        label="📥 Download Ad Type Performance Excel (.xlsx)",
+                        data=excel_adtype,
+                        file_name="Ad_Type_Performance_Report.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                         key="btn_dl_adtype"
                     )
                 else:
@@ -391,13 +399,13 @@ if uploaded_files:
                 if not search_df.empty:
                     st.dataframe(style_dataframe(search_df), use_container_width=True, hide_index=True, height=500)
                     
-                    # Download CSV Button for Search Term Data
-                    csv_search = search_df.to_csv(index=False).encode('utf-8')
+                    # Download XLSX Button for Search Term Data
+                    excel_search = convert_df_to_excel(search_df, sheet_name="Search_Term_Performance")
                     st.download_button(
-                        label="📥 Download Search Term Performance CSV",
-                        data=csv_search,
-                        file_name="Search_Term_Performance_Report.csv",
-                        mime="text/csv",
+                        label="📥 Download Search Term Performance Excel (.xlsx)",
+                        data=excel_search,
+                        file_name="Search_Term_Performance_Report.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                         key="btn_dl_search"
                     )
                 else:
