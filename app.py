@@ -490,7 +490,6 @@ if uploaded_files:
                 return np.nan
             final_df['Week'] = final_df.apply(assign_week_formatted, axis=1)
         else:
-            final_df['_date_dt'] = pd.NaT
             final_df['Week'] = np.nan
 
         def compute_grouped_table(df_subset, group_col, selected_item="All"):
@@ -690,6 +689,7 @@ if uploaded_files:
                     width="large"
                 )
 
+            # Updated to support modern Pandas (.map) and older Pandas (.applymap)
             if hasattr(unified_df.style, "map"):
                 styled_unified_df = unified_df.style.map(highlight_percentage_cells)
             else:
@@ -703,17 +703,24 @@ if uploaded_files:
                 key=f"{key_prefix}_single_unified_grid"
             )
 
-        # Dashboard Top Metric Cards
-        st.markdown("### 📈 Overall Campaign Performance Dashboard")
-        
-        # Base computation for default top cards before interactive filters
-        total_impressions = final_df['_impressions'].sum()
-        total_sales = round(final_df['_sales'].sum(), 2)
-        total_orders = final_df['_orders'].sum()
-        total_atc = final_df['_atc'].sum()
-        total_budget = round(final_df['_budget_consumed'].sum(), 2)
+        # Dashboard Filters
+        st.markdown("### 🔍 Global Dashboard Filters")
+        available_months = ["All Months"] + list(final_df['Month'].dropna().unique())
+        selected_month = st.selectbox("Select Month Across Dashboard (Excluding Comparison Tables)", available_months)
+
+        filtered_df = final_df.copy()
+        if selected_month != "All Months":
+            filtered_df = filtered_df[filtered_df['Month'] == selected_month]
+
+        total_impressions = filtered_df['_impressions'].sum()
+        total_sales = round(filtered_df['_sales'].sum(), 2)
+        total_orders = filtered_df['_orders'].sum()
+        total_atc = filtered_df['_atc'].sum()
+        total_budget = round(filtered_df['_budget_consumed'].sum(), 2)
         overall_roas = round((total_sales / total_budget), 2) if total_budget > 0 else 0.0
 
+        st.markdown("### 📈 Overall Campaign Performance Dashboard")
+        
         row1_col1, row1_col2, row1_col3 = st.columns(3)
         with row1_col1: st.metric("Total Impressions", f"{int(total_impressions):,}")
         with row1_col2: st.metric("Total Sales", f"₹{total_sales:,.2f}")
@@ -723,53 +730,6 @@ if uploaded_files:
         with row2_col1: st.metric("Overall RoAS", f"{overall_roas:.2f}x")
         with row2_col2: st.metric("Total Orders", f"{int(total_orders):,}")
         with row2_col3: st.metric("Total Add To Cart", f"{int(total_atc):,}")
-
-        st.divider()
-
-        # Global Dashboard Filters placed BELOW headers
-        st.markdown("### 🔍 Dashboard Filters")
-        filter_col1, filter_col2 = st.columns([1, 2])
-
-        with filter_col1:
-            available_months = ["All Months"] + list(final_df['Month'].dropna().unique())
-            selected_month = st.selectbox("Select Month:", available_months)
-
-        # Filter base dataset for date range calculation
-        if selected_month != "All Months":
-            month_filtered_df = final_df[final_df['Month'] == selected_month]
-        else:
-            month_filtered_df = final_df.copy()
-
-        valid_dates = month_filtered_df['_date_dt'].dropna()
-
-        with filter_col2:
-            if not valid_dates.empty:
-                min_date = valid_dates.min().date()
-                max_date = valid_dates.max().date()
-
-                if min_date != max_date:
-                    selected_date_range = st.date_input(
-                        "Select Date Range:",
-                        value=(min_date, max_date),
-                        min_value=min_date,
-                        max_value=max_date
-                    )
-                else:
-                    selected_date_range = (min_date, max_date)
-                    st.info(f"Single date available for selected filter: **{min_date}**")
-            else:
-                selected_date_range = None
-                st.caption("No valid dates found in file to filter by date range.")
-
-        # Apply month and date range filters together to get filtered_df
-        filtered_df = month_filtered_df.copy()
-
-        if selected_date_range and len(selected_date_range) == 2 and not valid_dates.empty:
-            start_d, end_d = selected_date_range
-            filtered_df = filtered_df[
-                (filtered_df['_date_dt'].dt.date >= start_d) & 
-                (filtered_df['_date_dt'].dt.date <= end_d)
-            ]
 
         st.divider()
 
