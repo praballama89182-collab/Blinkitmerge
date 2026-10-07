@@ -20,7 +20,6 @@ st.markdown("""
     [data-testid="stDataFrame"] th, [data-testid="stDataFrame"] td {
         text-align: center !important;
         vertical-align: middle !important;
-        white-space: nowrap !important;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -50,7 +49,6 @@ def style_and_export_pivot(pivot_df, sheet_name="Comparison"):
     
     data_font = Font(name="Calibri", size=10, color="000000")
     
-    # Text wrapping disabled for headers and columns
     align_center = Alignment(horizontal="center", vertical="center", wrap_text=False)
     align_left = Alignment(horizontal="left", vertical="center", wrap_text=False)
     
@@ -120,9 +118,11 @@ def style_and_export_pivot(pivot_df, sheet_name="Comparison"):
 
                 if isinstance(val, (int, float, np.number)):
                     if str(m_col).upper() == 'ACOS':
-                        # Store as numeric percentage decimal
                         val_cell.value = val / 100.0 if val > 1 else val
                         val_cell.number_format = '0.00%'
+                    elif str(m_col).upper() == 'CPM':
+                        val_cell.value = round(val)
+                        val_cell.number_format = '#,##0'
                     else:
                         val_cell.value = round(val, 2)
                         val_cell.number_format = '#,##0.00' if isinstance(val, float) else '#,##0'
@@ -149,6 +149,9 @@ def style_and_export_pivot(pivot_df, sheet_name="Comparison"):
                 if str(col_name).upper() == 'ACOS' and not is_pct_row and isinstance(val, (int, float, np.number)):
                     val_cell.value = val / 100.0 if val > 1 else val
                     val_cell.number_format = '0.00%'
+                elif str(col_name).upper() == 'CPM' and not is_pct_row and isinstance(val, (int, float, np.number)):
+                    val_cell.value = round(val)
+                    val_cell.number_format = '#,##0'
                 elif isinstance(val, float):
                     val_cell.value = round(val, 2)
                     val_cell.number_format = '#,##0.00'
@@ -158,7 +161,6 @@ def style_and_export_pivot(pivot_df, sheet_name="Comparison"):
                 else:
                     val_cell.value = val
 
-                # Apply green/red shading for Percentage % row
                 if is_pct_row and c_idx > 1:
                     val_str = str(val).replace('%', '').replace('+', '').strip()
                     try:
@@ -174,7 +176,6 @@ def style_and_export_pivot(pivot_df, sheet_name="Comparison"):
                 elif is_pct_row:
                     val_cell.fill = sec_header_fill
 
-    # Auto-adjust column widths without text wrapping
     for col in ws.columns:
         max_len = max(len(str(cell.value or '')) for cell in col)
         col_letter = openpyxl.utils.get_column_letter(col[0].column)
@@ -270,6 +271,9 @@ def convert_all_pivots_to_excel(pivot_dict):
                             if str(m_col).upper() == 'ACOS':
                                 val_cell.value = val / 100.0 if val > 1 else val
                                 val_cell.number_format = '0.00%'
+                            elif str(m_col).upper() == 'CPM':
+                                val_cell.value = round(val)
+                                val_cell.number_format = '#,##0'
                             else:
                                 val_cell.value = round(val, 2)
                                 val_cell.number_format = '#,##0.00' if isinstance(val, float) else '#,##0'
@@ -294,6 +298,9 @@ def convert_all_pivots_to_excel(pivot_dict):
                         if str(col_name).upper() == 'ACOS' and not is_pct_row and isinstance(val, (int, float, np.number)):
                             val_cell.value = val / 100.0 if val > 1 else val
                             val_cell.number_format = '0.00%'
+                        elif str(col_name).upper() == 'CPM' and not is_pct_row and isinstance(val, (int, float, np.number)):
+                            val_cell.value = round(val)
+                            val_cell.number_format = '#,##0'
                         elif isinstance(val, float):
                             val_cell.value = round(val, 2)
                             val_cell.number_format = '#,##0.00'
@@ -494,7 +501,7 @@ if uploaded_files:
         else:
             final_df['Week'] = np.nan
 
-        # Aggregation helper function with 2-decimal rounding
+        # Aggregation helper function (CPM is integer without decimals)
         def compute_grouped_table(df_subset, group_col, selected_item="All"):
             if group_col not in df_subset.columns:
                 return pd.DataFrame()
@@ -516,7 +523,8 @@ if uploaded_files:
                 SALES=('_sales', 'sum')
             ).reset_index()
 
-            grouped['CPM'] = grouped.apply(lambda r: round((r['SPENDS'] / r['IMPRESSIONS']) * 1000, 2) if r['IMPRESSIONS'] > 0 else 0.0, axis=1)
+            # CPM without decimal places
+            grouped['CPM'] = grouped.apply(lambda r: round((r['SPENDS'] / r['IMPRESSIONS']) * 1000) if r['IMPRESSIONS'] > 0 else 0, axis=1)
             grouped['ROAS'] = grouped.apply(lambda r: round(r['SALES'] / r['SPENDS'], 2) if r['SPENDS'] > 0 else 0.0, axis=1)
             grouped['ACOS'] = grouped.apply(lambda r: round((r['SPENDS'] / r['SALES']) * 100, 2) if r['SALES'] > 0 else 0.0, axis=1)
 
@@ -532,7 +540,7 @@ if uploaded_files:
             res_df['SALES'] = res_df['SALES'].round(2)
             return res_df
 
-        # Month-on-Month Comparison matrix with GRAND TOTAL anchor logic
+        # Month-on-Month Comparison Matrix with Single Integrated Column + Grand Total Locked Row
         def create_mom_comparison_table(df_input, entity_col):
             if entity_col not in df_input.columns:
                 return pd.DataFrame()
@@ -549,7 +557,8 @@ if uploaded_files:
                 Sales=('_sales', 'sum')
             ).reset_index()
 
-            grouped['CPM'] = grouped.apply(lambda r: round((r['Spends'] / r['Impressions']) * 1000, 2) if r['Impressions'] > 0 else 0.0, axis=1)
+            # CPM without decimals (0 decimals)
+            grouped['CPM'] = grouped.apply(lambda r: round((r['Spends'] / r['Impressions']) * 1000) if r['Impressions'] > 0 else 0, axis=1)
             grouped['ROAS'] = grouped.apply(lambda r: round(r['Sales'] / r['Spends'], 2) if r['Spends'] > 0 else 0.0, axis=1)
             grouped['ACOS'] = grouped.apply(lambda r: round((r['Spends'] / r['Sales']) * 100, 2) if r['Sales'] > 0 else 0.0, axis=1)
 
@@ -566,7 +575,7 @@ if uploaded_files:
             sorted_cols = pd.MultiIndex.from_product([all_months, metrics_order], names=['Month', 'Metric'])
             pivot_df = pivot_df.reindex(columns=sorted_cols).fillna(0)
 
-            # GRAND TOTAL ROW
+            # Calculate Grand Total values across metrics
             grand_total_series = {}
             for month in all_months:
                 month_df = working_df[working_df['Month'] == month]
@@ -576,7 +585,7 @@ if uploaded_files:
                 total_spends = round(month_df['_budget_consumed'].sum(), 2)
                 total_sales = round(month_df['_sales'].sum(), 2)
 
-                total_cpm = round((total_spends / total_imp) * 1000, 2) if total_imp > 0 else 0.0
+                total_cpm = round((total_spends / total_imp) * 1000) if total_imp > 0 else 0
                 total_roas = round(total_sales / total_spends, 2) if total_spends > 0 else 0.0
                 total_acos = round((total_spends / total_sales) * 100, 2) if total_sales > 0 else 0.0
 
@@ -589,6 +598,7 @@ if uploaded_files:
                 grand_total_series[(month, 'ROAS')] = total_roas
                 grand_total_series[(month, 'ACOS')] = total_acos
 
+            # Grand Total added cleanly into the same single column structure
             pivot_df.loc['Grand Total'] = grand_total_series
             pivot_df.index.name = entity_col
             return pivot_df
@@ -607,7 +617,8 @@ if uploaded_files:
                 Sales=('_sales', 'sum')
             ).reset_index()
 
-            monthly_agg['CPM'] = monthly_agg.apply(lambda r: round((r['Spends'] / r['Impressions']) * 1000, 2) if r['Impressions'] > 0 else 0.0, axis=1)
+            # CPM without decimal (0 decimal places)
+            monthly_agg['CPM'] = monthly_agg.apply(lambda r: round((r['Spends'] / r['Impressions']) * 1000) if r['Impressions'] > 0 else 0, axis=1)
             monthly_agg['ROAS'] = monthly_agg.apply(lambda r: round(r['Sales'] / r['Spends'], 2) if r['Spends'] > 0 else 0.0, axis=1)
             monthly_agg['ACOS'] = monthly_agg.apply(lambda r: round((r['Spends'] / r['Sales']) * 100, 2) if r['Sales'] > 0 else 0.0, axis=1)
 
@@ -641,21 +652,64 @@ if uploaded_files:
             monthly_agg['ACOS'] = monthly_agg['ACOS'].apply(lambda v: f"{v:.2f}%" if isinstance(v, (int, float)) else str(v))
             return monthly_agg
 
-        # Helper to render interactive dataframe while locking Grand Total to bottom row
-        def display_df_with_locked_grand_total(df_to_show, key_prefix="df"):
+        # Render helper with sorting controls that lock 'Grand Total' or 'Percentage %' permanently at bottom
+        def render_table_with_locked_bottom_row(df_to_show, key_prefix="mom", expandable_col=None):
             if df_to_show is None or df_to_show.empty:
                 return
 
-            if isinstance(df_to_show.index, pd.Index) and 'Grand Total' in df_to_show.index:
-                main_part = df_to_show.drop('Grand Total')
-                total_part = df_to_show.loc[['Grand Total']]
+            working_df = df_to_show.copy()
+            bottom_row_label = 'Grand Total' if 'Grand Total' in working_df.index else ('Percentage %' if 'Percentage %' in working_df['Month'].values else None)
 
-                # Maintain Grand Total at bottom on sort
-                st.dataframe(main_part, use_container_width=True)
-                st.caption("🔒 **Grand Total Summary (Pinned):**")
-                st.dataframe(total_part, use_container_width=True)
+            # Check if index contains Grand Total or column contains Percentage %
+            if isinstance(working_df.index, pd.Index) and 'Grand Total' in working_df.index:
+                main_df = working_df.drop('Grand Total')
+                total_row = working_df.loc[['Grand Total']]
+            elif 'Month' in working_df.columns and 'Percentage %' in working_df['Month'].values:
+                main_df = working_df[working_df['Month'] != 'Percentage %'].copy()
+                total_row = working_df[working_df['Month'] == 'Percentage %'].copy()
             else:
-                st.dataframe(df_to_show, use_container_width=True, hide_index=True)
+                main_df = working_df
+                total_row = None
+
+            # Interactive Sorting Options
+            st.caption("⚡ **Sort Table Rows (Grand Total / Percentage % pinned to bottom):**")
+            sort_cols = [str(c) for c in main_df.columns] if not isinstance(main_df.columns, pd.MultiIndex) else [f"{c[0]} - {c[1]}" for c in main_df.columns]
+            
+            c_sort1, c_sort2 = st.columns([3, 1])
+            with c_sort1:
+                selected_sort_col = st.selectbox("Sort By Column:", ["Default Order"] + sort_cols, key=f"{key_prefix}_sort_col")
+            with c_sort2:
+                sort_order = st.radio("Order:", ["Ascending", "Descending"], key=f"{key_prefix}_sort_ord", horizontal=True)
+
+            if selected_sort_col != "Default Order":
+                asc = (sort_order == "Ascending")
+                if isinstance(main_df.columns, pd.MultiIndex):
+                    idx_match = sort_cols.index(selected_sort_col)
+                    col_key = main_df.columns[idx_match]
+                    main_df = main_df.sort_values(by=col_key, ascending=asc)
+                else:
+                    main_df = main_df.sort_values(by=selected_sort_col, ascending=asc)
+
+            if total_row is not None:
+                final_display_df = pd.concat([main_df, total_row])
+            else:
+                final_display_df = main_df
+
+            # Column config for expandable keywords or long names
+            col_config = {}
+            if expandable_col:
+                col_config[expandable_col] = st.column_config.TextColumn(
+                    expandable_col,
+                    help="Click column header edge to expand or view full text",
+                    width="large"
+                )
+
+            st.dataframe(
+                final_display_df,
+                use_container_width=True,
+                hide_index=False if isinstance(final_display_df.index, pd.MultiIndex) or final_display_df.index.name else True,
+                column_config=col_config
+            )
 
         # Dashboard Filters
         st.markdown("### 🔍 Global Dashboard Filters")
@@ -762,29 +816,7 @@ if uploaded_files:
             with comp_sub_tab0:
                 st.markdown("#### Monthly Comparison Summary Table")
                 if not monthly_summary_df.empty:
-                    def highlight_percentage_row(row):
-                        if str(row['Month']).strip().lower() == 'percentage %':
-                            styles = []
-                            for col, val in row.items():
-                                if col == 'Month':
-                                    styles.append('font-weight: bold; background-color: #D9E1F2; color: #1F4E78')
-                                else:
-                                    v_str = str(val).replace('%', '').replace('+', '').strip()
-                                    try:
-                                        num_v = float(v_str)
-                                        if num_v < 0:
-                                            styles.append('background-color: #F8D7DA; color: #721C24; font-weight: bold')
-                                        elif num_v > 0:
-                                            styles.append('background-color: #D4EDDA; color: #155724; font-weight: bold')
-                                        else:
-                                            styles.append('font-weight: bold')
-                                    except ValueError:
-                                        styles.append('font-weight: bold')
-                            return styles
-                        return [''] * len(row)
-
-                    styled_df = monthly_summary_df.style.apply(highlight_percentage_row, axis=1)
-                    st.dataframe(styled_df, use_container_width=True, hide_index=True)
+                    render_table_with_locked_bottom_row(monthly_summary_df, key_prefix="monthly_summary_tab")
 
                     excel_month_summary = style_and_export_pivot(monthly_summary_df, sheet_name="Monthly_Summary")
                     st.download_button(
@@ -798,7 +830,7 @@ if uploaded_files:
             with comp_sub_tab1:
                 st.markdown("#### Campaign Month-on-Month Comparison Table")
                 if camp_pivot is not None and not camp_pivot.empty:
-                    display_df_with_locked_grand_total(camp_pivot, "camp")
+                    render_table_with_locked_bottom_row(camp_pivot, key_prefix="camp_pivot_tab")
                     
                     excel_camp_pivot = style_and_export_pivot(camp_pivot, sheet_name="Campaign_MoM")
                     st.download_button(
@@ -814,7 +846,7 @@ if uploaded_files:
             with comp_sub_tab2:
                 st.markdown("#### Ad Type Month-on-Month Comparison Table")
                 if ad_pivot is not None and not ad_pivot.empty:
-                    display_df_with_locked_grand_total(ad_pivot, "ad")
+                    render_table_with_locked_bottom_row(ad_pivot, key_prefix="ad_pivot_tab")
                     
                     excel_ad_pivot = style_and_export_pivot(ad_pivot, sheet_name="AdType_MoM")
                     st.download_button(
@@ -828,7 +860,7 @@ if uploaded_files:
             with comp_sub_tab3:
                 st.markdown("#### Keyword / Search Term Month-on-Month Comparison Table")
                 if kw_pivot is not None and not kw_pivot.empty:
-                    display_df_with_locked_grand_total(kw_pivot, "kw")
+                    render_table_with_locked_bottom_row(kw_pivot, key_prefix="kw_pivot_tab", expandable_col=kw_col)
                     
                     excel_kw_pivot = style_and_export_pivot(kw_pivot, sheet_name="Keyword_MoM")
                     st.download_button(
@@ -844,7 +876,7 @@ if uploaded_files:
             with comp_sub_tab4:
                 st.markdown("#### Weekly Month-on-Month Comparison Table")
                 if week_pivot is not None and not week_pivot.empty:
-                    display_df_with_locked_grand_total(week_pivot, "week")
+                    render_table_with_locked_bottom_row(week_pivot, key_prefix="week_pivot_tab")
                     
                     excel_week_pivot = style_and_export_pivot(week_pivot, sheet_name="Weekly_MoM")
                     st.download_button(
@@ -894,7 +926,7 @@ if uploaded_files:
                     _sales=('_sales', 'sum')
                 ).reset_index()
 
-                monthly_summary['CPM'] = monthly_summary.apply(lambda r: round((r['_budget_consumed'] / r['_impressions']) * 1000, 2) if r['_impressions'] > 0 else 0.0, axis=1)
+                monthly_summary['CPM'] = monthly_summary.apply(lambda r: round((r['_budget_consumed'] / r['_impressions']) * 1000) if r['_impressions'] > 0 else 0, axis=1)
                 monthly_summary['ROAS'] = monthly_summary.apply(lambda r: round(r['_sales'] / r['_budget_consumed'], 2) if r['_budget_consumed'] > 0 else 0.0, axis=1)
                 monthly_summary['ACOS'] = monthly_summary.apply(lambda r: round((r['_budget_consumed'] / r['_sales']) * 100, 2) if r['_sales'] > 0 else 0.0, axis=1)
                 
@@ -996,7 +1028,17 @@ if uploaded_files:
                 selected_kw = st.selectbox(f"Select {kw_col}:", kw_options, key="kw_single_filt")
                 search_df = compute_grouped_table(filtered_df, kw_col, selected_kw)
                 if not search_df.empty:
-                    st.dataframe(search_df, use_container_width=True, hide_index=True)
+                    st.dataframe(
+                        search_df,
+                        use_container_width=True,
+                        hide_index=True,
+                        column_config={
+                            kw_col.upper(): st.column_config.TextColumn(
+                                kw_col.upper(),
+                                width="large"
+                            )
+                        }
+                    )
 
         with main_tab8:
             if 'Week' in filtered_df.columns and filtered_df['Week'].notna().any():
