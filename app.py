@@ -50,11 +50,21 @@ def convert_df_to_excel(df, sheet_name="Performance", highlight_col=None):
     buffer.seek(0)
     return buffer.getvalue()
 
-# Helper function to export multi-level header Pivot Tables (Comparison Tables) to Excel
+# Helper function to export multi-level header Pivot Tables (Single Sheet)
 def convert_pivot_to_excel(pivot_df, sheet_name="Comparison"):
     buffer = io.BytesIO()
     with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
         pivot_df.to_excel(writer, sheet_name=sheet_name)
+    buffer.seek(0)
+    return buffer.getvalue()
+
+# Helper function to export ALL 4 MoM Pivot Tables into a single combined Excel Workbook
+def convert_all_pivots_to_excel(pivot_dict):
+    buffer = io.BytesIO()
+    with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+        for sheet_name, pivot_df in pivot_dict.items():
+            if pivot_df is not None and not pivot_df.empty:
+                pivot_df.to_excel(writer, sheet_name=sheet_name[:31])
     buffer.seek(0)
     return buffer.getvalue()
 
@@ -365,7 +375,39 @@ if uploaded_files:
         # TAB 3: Month-on-Month Comparison Tables
         with main_tab3:
             st.subheader("📊 Month-on-Month Comparison Tables")
-            st.caption("View side-by-side MoM metrics for Campaign, Ad Type, Keywords, and Weeks. Download each table separately.")
+            st.caption("View side-by-side MoM metrics for Campaign, Ad Type, Keywords, and Weeks. Download individual tables or all 4 tables in a single workbook.")
+
+            # Compute Pivot Tables
+            camp_pivot = create_mom_comparison_table(final_df, 'Campaign Name') if 'Campaign Name' in final_df.columns else None
+            ad_pivot = create_mom_comparison_table(final_df, 'Ad Type Combined') if 'Ad Type Combined' in final_df.columns else None
+            
+            kw_col = None
+            for c in ['Search Term', 'Keyword', 'Targeting Value']:
+                if c in final_df.columns:
+                    kw_col = c
+                    break
+            kw_pivot = create_mom_comparison_table(final_df, kw_col) if kw_col else None
+            week_pivot = create_mom_comparison_table(final_df, 'Week') if ('Week' in final_df.columns and final_df['Week'].notna().any()) else None
+
+            # Consolidated 4-in-1 Download Button at top of MoM tab
+            mom_dict = {
+                "Campaign_MoM": camp_pivot,
+                "AdType_MoM": ad_pivot,
+                "Keyword_MoM": kw_pivot,
+                "Weekly_MoM": week_pivot
+            }
+            all_pivots_bytes = convert_all_pivots_to_excel(mom_dict)
+
+            st.download_button(
+                label="📥 Download All MoM Comparison Tables (.xlsx)",
+                data=all_pivots_bytes,
+                file_name="All_MoM_Comparison_Tables_Combined.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                key="btn_dl_all_mom_pivots",
+                type="primary"
+            )
+
+            st.divider()
 
             comp_sub_tab1, comp_sub_tab2, comp_sub_tab3, comp_sub_tab4 = st.tabs([
                 "🎯 Campaign Comparison",
@@ -376,8 +418,7 @@ if uploaded_files:
 
             with comp_sub_tab1:
                 st.markdown("#### Campaign Month-on-Month Comparison Table")
-                if 'Campaign Name' in final_df.columns:
-                    camp_pivot = create_mom_comparison_table(final_df, 'Campaign Name')
+                if camp_pivot is not None and not camp_pivot.empty:
                     st.dataframe(camp_pivot, use_container_width=True)
                     
                     excel_camp_pivot = convert_pivot_to_excel(camp_pivot, sheet_name="Campaign_MoM")
@@ -393,8 +434,7 @@ if uploaded_files:
 
             with comp_sub_tab2:
                 st.markdown("#### Ad Type Month-on-Month Comparison Table")
-                if 'Ad Type Combined' in final_df.columns:
-                    ad_pivot = create_mom_comparison_table(final_df, 'Ad Type Combined')
+                if ad_pivot is not None and not ad_pivot.empty:
                     st.dataframe(ad_pivot, use_container_width=True)
                     
                     excel_ad_pivot = convert_pivot_to_excel(ad_pivot, sheet_name="AdType_MoM")
@@ -408,13 +448,7 @@ if uploaded_files:
 
             with comp_sub_tab3:
                 st.markdown("#### Keyword / Search Term Month-on-Month Comparison Table")
-                kw_col = None
-                for c in ['Search Term', 'Keyword', 'Targeting Value']:
-                    if c in final_df.columns:
-                        kw_col = c
-                        break
-                if kw_col:
-                    kw_pivot = create_mom_comparison_table(final_df, kw_col)
+                if kw_pivot is not None and not kw_pivot.empty:
                     st.dataframe(kw_pivot, use_container_width=True)
                     
                     excel_kw_pivot = convert_pivot_to_excel(kw_pivot, sheet_name="Keyword_MoM")
@@ -430,8 +464,7 @@ if uploaded_files:
 
             with comp_sub_tab4:
                 st.markdown("#### Weekly Month-on-Month Comparison Table")
-                if 'Week' in final_df.columns and final_df['Week'].notna().any():
-                    week_pivot = create_mom_comparison_table(final_df, 'Week')
+                if week_pivot is not None and not week_pivot.empty:
                     st.dataframe(week_pivot, use_container_width=True)
                     
                     excel_week_pivot = convert_pivot_to_excel(week_pivot, sheet_name="Weekly_MoM")
@@ -443,7 +476,7 @@ if uploaded_files:
                         key="btn_dl_week_pivot"
                     )
 
-        # TAB 4: REVISED TREND ANALYTICS - Multi-Curve Line & Pillar Bar Graph
+        # TAB 4: Interactive Trend Analytics
         with main_tab4:
             st.subheader("📈 Interactive Multi-Metric Trend Analytics")
             st.caption("Select multiple months and metrics to compare performance across time with smooth curved lines overlaying metric pillar columns.")
@@ -514,7 +547,6 @@ if uploaded_files:
                     use_sec_y = metric_label in ['ROAS', 'ACOS (%)', 'CPM (₹)']
                     color = palette[idx % len(palette)]
 
-                    # First primary metric is rendered as vertical pillar bar
                     if idx == 0:
                         fig_trend.add_trace(
                             go.Bar(
@@ -532,7 +564,6 @@ if uploaded_files:
                             secondary_y=use_sec_y
                         )
 
-                    # Subsequent metrics are rendered as smooth curved spline lines with markers
                     fig_trend.add_trace(
                         go.Scatter(
                             x=monthly_summary['Month'],
