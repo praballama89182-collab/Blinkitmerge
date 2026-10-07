@@ -22,7 +22,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.title("📊 Blinkit Ad Report Merger & Analytics")
-st.write("Upload up to 5 monthly Excel ad campaign spreadsheets (.xlsx, .xls, .xlsb, .xlsm). Preview raw & consolidated sheets, view Month-on-Month Comparison tables, and analyze dot trend comparisons.")
+st.write("Upload up to 5 monthly Excel ad campaign spreadsheets (.xlsx, .xls, .xlsb, .xlsm). Preview raw & consolidated sheets, view Month-on-Month Comparison tables, and analyze multi-metric curve & bar trend comparisons.")
 
 # Helper function to convert dataframe to downloadable Excel bytes with custom formatting/highlighting
 def convert_df_to_excel(df, sheet_name="Performance", highlight_col=None):
@@ -362,7 +362,7 @@ if uploaded_files:
             preview_clean_df = final_df.drop(columns=['_impressions', '_direct_atc', '_indirect_atc', '_atc', '_direct_orders', '_indirect_orders', '_orders', '_direct_sales', '_indirect_sales', '_sales', '_budget_consumed', '_date_dt', 'Ad Type Combined'], errors='ignore')
             st.dataframe(preview_clean_df.head(100), use_container_width=True)
 
-        # TAB 3: Month-on-Month Comparison Tables (DOWNLOADABLE SEPARATELY)
+        # TAB 3: Month-on-Month Comparison Tables
         with main_tab3:
             st.subheader("📊 Month-on-Month Comparison Tables")
             st.caption("View side-by-side MoM metrics for Campaign, Ad Type, Keywords, and Weeks. Download each table separately.")
@@ -374,7 +374,6 @@ if uploaded_files:
                 "📅 Weekly Comparison"
             ])
 
-            # 1. Campaign MoM Comparison
             with comp_sub_tab1:
                 st.markdown("#### Campaign Month-on-Month Comparison Table")
                 if 'Campaign Name' in final_df.columns:
@@ -392,7 +391,6 @@ if uploaded_files:
                 else:
                     st.info("No Campaign Name column found.")
 
-            # 2. Ad Type MoM Comparison
             with comp_sub_tab2:
                 st.markdown("#### Ad Type Month-on-Month Comparison Table")
                 if 'Ad Type Combined' in final_df.columns:
@@ -408,7 +406,6 @@ if uploaded_files:
                         key="btn_dl_ad_pivot"
                     )
 
-            # 3. Keyword MoM Comparison
             with comp_sub_tab3:
                 st.markdown("#### Keyword / Search Term Month-on-Month Comparison Table")
                 kw_col = None
@@ -431,7 +428,6 @@ if uploaded_files:
                 else:
                     st.info("No Keyword or Search Term column found.")
 
-            # 4. Weekly MoM Comparison
             with comp_sub_tab4:
                 st.markdown("#### Weekly Month-on-Month Comparison Table")
                 if 'Week' in final_df.columns and final_df['Week'].notna().any():
@@ -447,10 +443,10 @@ if uploaded_files:
                         key="btn_dl_week_pivot"
                     )
 
-        # TAB 4: NEW - Multi-Metric & Multi-Month Interactive Dot/Line Trend Analytics
+        # TAB 4: REVISED TREND ANALYTICS - Multi-Curve Line & Pillar Bar Graph
         with main_tab4:
-            st.subheader("📈 Interactive Multi-Metric & Multi-Month Dot Trend Analytics")
-            st.caption("Select multiple months and metrics to compare performance across time with dot-line trend graphs.")
+            st.subheader("📈 Interactive Multi-Metric Trend Analytics")
+            st.caption("Select multiple months and metrics to compare performance across time with smooth curved lines overlaying metric pillar columns.")
 
             all_df_months = sorted(list(final_df['Month'].dropna().unique()))
             selected_trend_months = st.multiselect(
@@ -471,7 +467,7 @@ if uploaded_files:
             }
 
             selected_trend_metrics = st.multiselect(
-                "Select Metrics to Display on Dot Trend Line:",
+                "Select Metrics to Display on Trend Graph:",
                 options=list(metric_map.keys()),
                 default=['Sales (₹)', 'Spends (₹)', 'ROAS']
             )
@@ -507,25 +503,44 @@ if uploaded_files:
                 })
                 st.dataframe(disp_summary, use_container_width=True)
 
-                # Render Plotly Dot-Line Chart
-                st.markdown("#### 📉 Multi-Metric Straight Line Dot Trend Graph")
+                # Render Plotly Curved Spline Line & Bar Combination Graph
+                st.markdown("#### 📉 Curved Trend Line & Pillar Combination Graph")
                 
                 fig_trend = make_subplots(specs=[[{"secondary_y": True}]])
-                palette = ['#1A73E8', '#34A853', '#EA4335', '#FBBC04', '#46BDC6', '#9334E6', '#F2994A']
+                palette = ['#0D47A1', '#1B5E20', '#B71C1C', '#E65100', '#4A148C', '#006064', '#F57F17']
 
                 for idx, metric_label in enumerate(selected_trend_metrics):
                     col_key = metric_map[metric_label]
                     use_sec_y = metric_label in ['ROAS', 'ACOS (%)', 'CPM (₹)']
                     color = palette[idx % len(palette)]
 
+                    # First primary metric is rendered as vertical pillar bar
+                    if idx == 0:
+                        fig_trend.add_trace(
+                            go.Bar(
+                                x=monthly_summary['Month'],
+                                y=monthly_summary[col_key],
+                                name=f"{metric_label} (Volume)",
+                                marker=dict(
+                                    color=color,
+                                    opacity=0.7,
+                                    line=dict(color='#000000', width=1)
+                                ),
+                                text=monthly_summary[col_key].apply(lambda v: f"{v:,.2f}" if isinstance(v, float) else f"{v:,}"),
+                                textposition="auto"
+                            ),
+                            secondary_y=use_sec_y
+                        )
+
+                    # Subsequent metrics are rendered as smooth curved spline lines with markers
                     fig_trend.add_trace(
                         go.Scatter(
                             x=monthly_summary['Month'],
                             y=monthly_summary[col_key],
                             name=metric_label,
                             mode='lines+markers+text',
-                            marker=dict(size=10, symbol='circle', color=color),
-                            line=dict(width=3, color=color),
+                            line=dict(shape='spline', width=4, color=color),
+                            marker=dict(size=9, color=color, symbol='circle'),
                             text=monthly_summary[col_key].apply(lambda v: f"{v:,.2f}" if isinstance(v, float) else f"{v:,}"),
                             textposition="top center"
                         ),
@@ -533,14 +548,15 @@ if uploaded_files:
                     )
 
                 fig_trend.update_layout(
-                    title="<b>Month-on-Month Multi-Metric Dot Trend Comparison</b>",
+                    title="<b>Multi-Metric Trend Curve & Volume Pillar Analysis</b>",
                     template="plotly_white",
-                    height=550,
+                    height=580,
                     hovermode="x unified",
+                    barmode="group",
                     legend=dict(orientation="h", yanchor="bottom", y=1.05, xanchor="right", x=1),
-                    xaxis=dict(title="Month"),
-                    yaxis=dict(title="Volume / Amount (₹)"),
-                    yaxis2=dict(title="Rates / Ratios (ROAS, ACOS %, CPM)", overlaying="y", side="right", showgrid=False)
+                    xaxis=dict(title="Time Intervals (Months)", showgrid=True),
+                    yaxis=dict(title="Numerical Values (Volume / Spends / Sales)", showgrid=True),
+                    yaxis2=dict(title="Ratios (ROAS, ACOS %, CPM)", overlaying="y", side="right", showgrid=False)
                 )
 
                 st.plotly_chart(fig_trend, use_container_width=True)
