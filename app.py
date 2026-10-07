@@ -44,6 +44,13 @@ def format_num_val(val):
     return val
 
 
+# Helper function to apply map safely across pandas versions
+def safe_cell_map(df, func):
+    if hasattr(df, "map"):
+        return df.map(func)
+    return df.applymap(func)
+
+
 # Helper function to style single downloadable Excel Pivot tables cleanly
 def style_and_export_pivot(pivot_df, sheet_name="Comparison"):
     buffer = io.BytesIO()
@@ -230,7 +237,7 @@ def style_and_export_pivot(pivot_df, sheet_name="Comparison"):
     return buffer.getvalue()
 
 
-# Function to export all 4 pivot tables into a multi-tab Excel Workbook
+# Function to export all pivot tables into a multi-tab Excel Workbook
 def convert_all_pivots_to_excel(pivot_dict):
     buffer = io.BytesIO()
     wb = openpyxl.Workbook()
@@ -699,7 +706,6 @@ if uploaded_files:
                 "ACOS",
             ]
 
-            # DESCENDING ORDER: Reverses parsed month order
             descending_months = list(df_input["Month"].unique())[::-1]
 
             pivot_df = pivot_df.reorder_levels([1, 0], axis=1)
@@ -741,8 +747,8 @@ if uploaded_files:
             pivot_df.loc["Grand Total"] = grand_total_series
             pivot_df.index.name = entity_col
 
-            # Apply rounding logic (2 decimals or whole number if .00)
-            pivot_df = pivot_df.applymap(format_num_val)
+            # Updated map function to fix pandas 2.1+ AttributeError
+            pivot_df = safe_cell_map(pivot_df, format_num_val)
             return pivot_df
 
         # Creates overall monthly summary table with descending month order
@@ -782,7 +788,6 @@ if uploaded_files:
                 axis=1,
             )
 
-            # DESCENDING ORDER: Latest month displayed first in summary table
             descending_months = list(df_input["Month"].unique())[::-1]
             monthly_agg["month_order"] = monthly_agg["Month"].map(
                 lambda x: descending_months.index(x) if x in descending_months else 99
@@ -833,7 +838,6 @@ if uploaded_files:
                     [monthly_agg, pd.DataFrame([pct_row])], ignore_index=True
                 )
 
-            # Apply rounding logic column by column
             for col in monthly_agg.columns:
                 if col != "Month":
                     monthly_agg[col] = monthly_agg[col].apply(format_num_val)
@@ -893,16 +897,7 @@ if uploaded_files:
             else:
                 final_display = main_df
 
-            # Pin the last row(s) when user sorts columns dynamically in UI
-            if pinned_rows is not None and not pinned_rows.empty:
-                total_pinned_count = len(pinned_rows)
-                st.dataframe(
-                    final_display,
-                    use_container_width=True,
-                    column_config={},
-                )
-            else:
-                st.dataframe(final_display, use_container_width=True)
+            st.dataframe(final_display, use_container_width=True)
 
         # Main Navigation Tabs Interface
         tab1, tab2, tab3 = st.tabs([
