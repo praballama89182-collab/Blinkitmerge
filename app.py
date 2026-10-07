@@ -18,15 +18,16 @@ st.set_page_config(
 st.markdown("""
 <style>
     :root {
-        --dash-blue: #0B5CAD;
-        --dash-blue-dark: #083B73;
-        --dash-blue-light: #EAF3FF;
-        --dash-border: #C9D8EA;
-        --dash-text: #17324D;
+        --dash-blue: #4A90C2;
+        --dash-blue-dark: #285B7A;
+        --dash-blue-light: #EEF6FC;
+        --dash-blue-soft: #DCECF8;
+        --dash-border: #C8DCEB;
+        --dash-text: #29465B;
     }
 
     .stApp {
-        background: linear-gradient(180deg, #F7FBFF 0%, #FFFFFF 32%);
+        background: linear-gradient(180deg, #F6FAFD 0%, #FFFFFF 38%);
         color: var(--dash-text);
     }
 
@@ -42,10 +43,10 @@ st.markdown("""
     [data-testid="stMetric"] {
         background: linear-gradient(135deg, #FFFFFF 0%, #EEF6FF 100%);
         border: 1px solid var(--dash-border);
-        border-left: 5px solid var(--dash-blue);
+        border-left: 5px solid #6AA6CF;
         border-radius: 12px;
         padding: 14px 18px;
-        box-shadow: 0 3px 12px rgba(11, 92, 173, 0.08);
+        box-shadow: 0 3px 12px rgba(74, 144, 194, 0.10);
     }
 
     [data-testid="stMetricLabel"] {
@@ -59,10 +60,10 @@ st.markdown("""
     }
 
     .stTabs [data-baseweb="tab-list"] {
-        gap: 6px;
-        background: #EAF3FF;
+        gap: 5px;
+        background: #F0F7FC;
         border: 1px solid var(--dash-border);
-        border-radius: 10px;
+        border-radius: 12px;
         padding: 5px;
     }
 
@@ -74,8 +75,9 @@ st.markdown("""
     }
 
     .stTabs [aria-selected="true"] {
-        background: var(--dash-blue) !important;
+        background: linear-gradient(135deg, #6AA6CF 0%, #4A90C2 100%) !important;
         color: #FFFFFF !important;
+        box-shadow: 0 2px 7px rgba(74, 144, 194, 0.20);
     }
 
     [data-testid="stFileUploader"] {
@@ -83,19 +85,19 @@ st.markdown("""
         border: 1px solid var(--dash-border);
         border-radius: 12px;
         padding: 8px;
-        box-shadow: 0 2px 8px rgba(11, 92, 173, 0.06);
+        box-shadow: 0 2px 8px rgba(74, 144, 194, 0.07);
     }
 
     [data-testid="stFileUploaderDropzone"] {
-        background: #F5F9FF;
-        border: 1px dashed #8FB6DC;
+        background: #F7FBFE;
+        border: 1px dashed #9FC4DE;
         border-radius: 9px;
     }
 
     [data-testid="stFileUploader"] button,
     .stDownloadButton button,
     .stButton button {
-        background: linear-gradient(135deg, #0B5CAD, #083B73) !important;
+        background: linear-gradient(135deg, #6AA6CF, #4A90C2) !important;
         color: #FFFFFF !important;
         border: 0 !important;
         border-radius: 8px !important;
@@ -106,7 +108,7 @@ st.markdown("""
     [data-testid="stFileUploader"] button:hover,
     .stDownloadButton button:hover,
     .stButton button:hover {
-        background: #062F5B !important;
+        background: #397BAA !important;
         color: #FFFFFF !important;
     }
 
@@ -124,8 +126,8 @@ st.markdown("""
     }
 
     [data-testid="stDataFrame"] th {
-        background: #DCEBFA !important;
-        color: #083B73 !important;
+        background: #E5F1F9 !important;
+        color: #285B7A !important;
         font-weight: 700 !important;
     }
 
@@ -157,11 +159,11 @@ def style_and_export_pivot(pivot_df, sheet_name="Comparison"):
     ws = wb.active
     ws.title = sheet_name[:31]
     
-    top_header_fill = PatternFill(start_color="1F4E78", end_color="1F4E78", fill_type="solid")
+    top_header_fill = PatternFill(start_color="4A90C2", end_color="4A90C2", fill_type="solid")
     top_header_font = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
     
-    sec_header_fill = PatternFill(start_color="D9E1F2", end_color="D9E1F2", fill_type="solid")
-    sec_header_font = Font(name="Calibri", size=10, bold=True, color="1F4E78")
+    sec_header_fill = PatternFill(start_color="E5F1F9", end_color="E5F1F9", fill_type="solid")
+    sec_header_font = Font(name="Calibri", size=10, bold=True, color="285B7A")
     
     index_fill = PatternFill(start_color="F2F2F2", end_color="F2F2F2", fill_type="solid")
     index_font = Font(name="Calibri", size=10, bold=True, color="000000")
@@ -244,7 +246,7 @@ def style_and_export_pivot(pivot_df, sheet_name="Comparison"):
                         val_cell.number_format = '#,##0'
                     else:
                         val_cell.value = round(val, 2)
-                        val_cell.number_format = '#,##0.00' if isinstance(val, float) else '#,##0'
+                        val_cell.number_format = '#,##0' if float(val).is_integer() else '#,##0.00'
                 else:
                     val_cell.value = val
     else:
@@ -272,7 +274,7 @@ def style_and_export_pivot(pivot_df, sheet_name="Comparison"):
                     val_cell.number_format = '#,##0'
                 elif isinstance(val, float):
                     val_cell.value = round(val, 2)
-                    val_cell.number_format = '#,##0.00'
+                    val_cell.number_format = '#,##0' if float(val).is_integer() else '#,##0.00'
                 elif isinstance(val, (int, np.integer)):
                     val_cell.value = val
                     val_cell.number_format = '#,##0'
@@ -308,10 +310,10 @@ def convert_all_pivots_to_excel(pivot_dict):
     wb = openpyxl.Workbook()
     wb.remove(wb.active)
 
-    top_header_fill = PatternFill(start_color="1F4E78", end_color="1F4E78", fill_type="solid")
+    top_header_fill = PatternFill(start_color="4A90C2", end_color="4A90C2", fill_type="solid")
     top_header_font = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
-    sec_header_fill = PatternFill(start_color="D9E1F2", end_color="D9E1F2", fill_type="solid")
-    sec_header_font = Font(name="Calibri", size=10, bold=True, color="1F4E78")
+    sec_header_fill = PatternFill(start_color="E5F1F9", end_color="E5F1F9", fill_type="solid")
+    sec_header_font = Font(name="Calibri", size=10, bold=True, color="285B7A")
     index_fill = PatternFill(start_color="F2F2F2", end_color="F2F2F2", fill_type="solid")
     index_font = Font(name="Calibri", size=10, bold=True, color="000000")
     total_fill = PatternFill(start_color="E9ECEF", end_color="E9ECEF", fill_type="solid")
@@ -393,7 +395,7 @@ def convert_all_pivots_to_excel(pivot_dict):
                                 val_cell.number_format = '#,##0'
                             else:
                                 val_cell.value = round(val, 2)
-                                val_cell.number_format = '#,##0.00' if isinstance(val, float) else '#,##0'
+                                val_cell.number_format = '#,##0' if float(val).is_integer() else '#,##0.00'
                         else:
                             val_cell.value = val
             else:
@@ -690,7 +692,7 @@ if uploaded_files:
             )
 
             metrics_order = ['Impressions', 'CPM', 'ATC', 'Orders', 'Spends', 'Sales', 'ROAS', 'ACOS']
-            all_months = df_input['Month'].unique()
+            all_months = get_calendar_months_desc(df_input)
             
             pivot_df = pivot_df.reorder_levels([1, 0], axis=1)
             sorted_cols = pd.MultiIndex.from_product([all_months, metrics_order], names=['Month', 'Metric'])
@@ -772,6 +774,37 @@ if uploaded_files:
             monthly_agg['ACOS'] = monthly_agg['ACOS'].apply(lambda v: f"{v:.2f}%" if isinstance(v, (int, float)) else str(v))
             return monthly_agg
 
+        def _format_dashboard_value(value, column_name=""):
+            """Format dashboard values without showing unnecessary 6+ decimal places."""
+            if pd.isna(value):
+                return value
+
+            col = str(column_name).strip().upper()
+            is_percentage = ('%' in col) or ('ACOS' in col)
+
+            if isinstance(value, (int, np.integer)) and not isinstance(value, bool):
+                return f"{int(value):,}" if not is_percentage else f"{int(value)}%"
+
+            if isinstance(value, (float, np.floating)) and np.isfinite(value):
+                if is_percentage:
+                    return f"{value:.2f}%"
+                if float(value).is_integer():
+                    return f"{int(value):,}"
+                return f"{value:,.2f}"
+
+            return value
+
+        def format_dashboard_dataframe(df):
+            """Create a display-only copy with clean whole/2-decimal/percentage formatting."""
+            out = df.copy()
+            if isinstance(out.columns, pd.MultiIndex):
+                for col in out.columns:
+                    out[col] = out[col].map(lambda v: _format_dashboard_value(v, f"{col[0]} {col[1]}"))
+            else:
+                for col in out.columns:
+                    out[col] = out[col].map(lambda v: _format_dashboard_value(v, col))
+            return out
+
         def render_unified_single_table(df_to_show, key_prefix="mom", expandable_col=None):
             if df_to_show is None or df_to_show.empty:
                 return
@@ -833,8 +866,9 @@ if uploaded_files:
             else:
                 styled_unified_df = unified_df.style.applymap(highlight_percentage_cells)
 
+            display_df = format_dashboard_dataframe(unified_df)
             st.dataframe(
-                styled_unified_df,
+                display_df.style.map(highlight_percentage_cells) if hasattr(display_df.style, "map") else display_df.style.applymap(highlight_percentage_cells),
                 use_container_width=True,
                 hide_index=False if isinstance(unified_df.index, pd.MultiIndex) or unified_df.index.name else True,
                 column_config=col_config,
@@ -890,12 +924,12 @@ if uploaded_files:
                 sheets = raw_files_dict[selected_file_name]
                 selected_sheet = st.selectbox("Select Sheet Tab:", list(sheets.keys()))
                 if selected_sheet:
-                    st.dataframe(sheets[selected_sheet].head(100), use_container_width=True, hide_index=True)
+                    st.dataframe(format_dashboard_dataframe(sheets[selected_sheet].head(100)), use_container_width=True, hide_index=True)
 
         with main_tab2:
             st.caption("Preview the combined dataset across all uploaded files.")
             preview_clean_df = final_df.drop(columns=['_impressions', '_direct_atc', '_indirect_atc', '_atc', '_direct_orders', '_indirect_orders', '_orders', '_direct_sales', '_indirect_sales', '_sales', '_budget_consumed', '_date_dt', 'Ad Type Combined'], errors='ignore')
-            st.dataframe(preview_clean_df.head(100), use_container_width=True, hide_index=True)
+            st.dataframe(format_dashboard_dataframe(preview_clean_df.head(100)), use_container_width=True, hide_index=True)
 
         with main_tab3:
             st.subheader("📊 Month-on-Month Comparison Tables")
@@ -1077,55 +1111,73 @@ if uploaded_files:
                     '_budget_consumed': 'SPENDS',
                     '_sales': 'SALES'
                 })
-                st.dataframe(disp_summary, use_container_width=True, hide_index=True)
+                st.dataframe(format_dashboard_dataframe(disp_summary), use_container_width=True, hide_index=True)
 
                 st.markdown("#### 📉 Curved Trend Line & Pillar Combination Graph")
                 
                 fig_trend = make_subplots(specs=[[{"secondary_y": True}]])
-                palette = ['#0D47A1', '#1B5E20', '#B71C1C', '#E65100', '#4A148C', '#006064', '#F57F17']
 
-                for idx, metric_label in enumerate(selected_trend_metrics):
+                # Soft, coordinated palette: Sales/Spends are the only bars; all other metrics are trend lines.
+                metric_colors = {
+                    'Sales (₹)': '#5B8DB8',
+                    'Spends (₹)': '#8CB6D3',
+                    'ROAS': '#6E8FB5',
+                    'Orders': '#6AAE9B',
+                    'Add To Cart (ATC)': '#A18DB8',
+                    'Impressions': '#7FA7A3',
+                    'ACOS (%)': '#C28FA0',
+                    'CPM (₹)': '#B39A70'
+                }
+
+                bar_metrics = {'Sales (₹)', 'Spends (₹)'}
+
+                for metric_label in selected_trend_metrics:
                     col_key = metric_map[metric_label]
                     use_sec_y = metric_label in ['ROAS', 'ACOS (%)', 'CPM (₹)']
-                    color = palette[idx % len(palette)]
+                    color = metric_colors.get(metric_label, '#6AA6CF')
+                    values = monthly_summary[col_key]
 
-                    if idx == 0:
+                    if metric_label in bar_metrics:
                         fig_trend.add_trace(
                             go.Bar(
                                 x=monthly_summary['Month'],
-                                y=monthly_summary[col_key],
-                                name=f"{metric_label} (Volume)",
-                                marker=dict(color=color, opacity=0.7, line=dict(color='#000000', width=1)),
-                                text=monthly_summary[col_key].apply(lambda v: f"{v:,.2f}" if isinstance(v, float) else f"{v:,}"),
-                                textposition="auto"
+                                y=values,
+                                name=metric_label,
+                                marker=dict(color=color, opacity=0.78, line=dict(color='#FFFFFF', width=1)),
+                                text=values.map(lambda v: _format_dashboard_value(v, metric_label)),
+                                textposition='outside',
+                                hovertemplate=f"<b>{metric_label}</b>: %{{y:,.2f}}<extra></extra>"
+                            ),
+                            secondary_y=use_sec_y
+                        )
+                    else:
+                        fig_trend.add_trace(
+                            go.Scatter(
+                                x=monthly_summary['Month'],
+                                y=values,
+                                name=metric_label,
+                                mode='lines+markers',
+                                line=dict(shape='spline', width=3.5, color=color),
+                                marker=dict(size=8, color=color, symbol='circle', line=dict(color='#FFFFFF', width=1.5)),
+                                hovertemplate=f"<b>{metric_label}</b>: %{{y:,.2f}}<extra></extra>"
                             ),
                             secondary_y=use_sec_y
                         )
 
-                    fig_trend.add_trace(
-                        go.Scatter(
-                            x=monthly_summary['Month'],
-                            y=monthly_summary[col_key],
-                            name=metric_label,
-                            mode='lines+markers+text',
-                            line=dict(shape='spline', width=4, color=color),
-                            marker=dict(size=9, color=color, symbol='circle'),
-                            text=monthly_summary[col_key].apply(lambda v: f"{v:,.2f}" if isinstance(v, float) else f"{v:,}"),
-                            textposition="top center"
-                        ),
-                        secondary_y=use_sec_y
-                    )
-
                 fig_trend.update_layout(
-                    title="<b>Multi-Metric Trend Curve & Volume Pillar Analysis</b>",
-                    template="plotly_white",
+                    title="<b>Multi-Metric Trend Analysis</b>",
+                    template='plotly_white',
                     height=580,
-                    hovermode="x unified",
-                    barmode="group",
-                    legend=dict(orientation="h", yanchor="bottom", y=1.05, xanchor="right", x=1),
-                    xaxis=dict(title="Time Intervals (Months)", showgrid=True),
-                    yaxis=dict(title="Numerical Values (Volume / Spends / Sales)", showgrid=True),
-                    yaxis2=dict(title="Ratios (ROAS, ACOS %, CPM)", overlaying="y", side="right", showgrid=False)
+                    hovermode='x unified',
+                    barmode='group',
+                    bargap=0.28,
+                    plot_bgcolor='#FBFDFF',
+                    paper_bgcolor='#FFFFFF',
+                    font=dict(family='Arial, sans-serif', color='#29465B'),
+                    legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='right', x=1),
+                    xaxis=dict(title='Months', showgrid=False, categoryorder='array', categoryarray=monthly_summary['Month'].tolist()),
+                    yaxis=dict(title='Sales / Spends / Volume', showgrid=True, gridcolor='#E8F0F6', zeroline=False),
+                    yaxis2=dict(title='Ratios / Rates', overlaying='y', side='right', showgrid=False, zeroline=False)
                 )
 
                 st.plotly_chart(fig_trend, use_container_width=True)
@@ -1138,7 +1190,7 @@ if uploaded_files:
                 selected_campaign = st.selectbox("Select Campaign:", campaign_options, key="camp_single_filt")
                 campaign_df = compute_grouped_table(filtered_df, 'Campaign Name', selected_campaign)
                 if not campaign_df.empty:
-                    st.dataframe(campaign_df, use_container_width=True, hide_index=True)
+                    st.dataframe(format_dashboard_dataframe(campaign_df), use_container_width=True, hide_index=True)
 
         with main_tab6:
             if 'Ad Type Combined' in filtered_df.columns:
@@ -1146,7 +1198,7 @@ if uploaded_files:
                 selected_adtype = st.selectbox("Select Ad Type:", adtype_options, key="ad_single_filt")
                 adtype_df = compute_grouped_table(filtered_df, 'Ad Type Combined', selected_adtype)
                 if not adtype_df.empty:
-                    st.dataframe(adtype_df, use_container_width=True, hide_index=True)
+                    st.dataframe(format_dashboard_dataframe(adtype_df), use_container_width=True, hide_index=True)
 
         with main_tab7:
             kw_col = None
@@ -1174,7 +1226,7 @@ if uploaded_files:
         with main_tab8:
             if 'Week' in filtered_df.columns and filtered_df['Week'].notna().any():
                 weekly_df = compute_grouped_table(filtered_df, 'Week', "All")
-                st.dataframe(weekly_df, use_container_width=True, hide_index=True)
+                st.dataframe(format_dashboard_dataframe(weekly_df), use_container_width=True, hide_index=True)
 
         st.divider()
 
