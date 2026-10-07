@@ -689,7 +689,6 @@ if uploaded_files:
                     width="large"
                 )
 
-            # Updated to support modern Pandas (.map) and older Pandas (.applymap)
             if hasattr(unified_df.style, "map"):
                 styled_unified_df = unified_df.style.map(highlight_percentage_cells)
             else:
