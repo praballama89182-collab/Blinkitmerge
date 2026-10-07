@@ -31,8 +31,8 @@ def convert_df_to_excel(df, sheet_name="Performance", highlight_col=None):
     with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
         df.to_excel(writer, sheet_name=sheet_name, index=False)
         
-        # Highlight NA-filled rows in Excel if requested
-        if highlight_col and '_filled_from_col_d' in df.columns:
+        # Highlight filled rows in Excel if requested
+        if highlight_col and '_filled_fallback' in df.columns:
             workbook = writer.book
             worksheet = writer.sheets[sheet_name]
             from openpyxl.styles import PatternFill
@@ -46,7 +46,7 @@ def convert_df_to_excel(df, sheet_name="Performance", highlight_col=None):
                     break
             
             if col_idx:
-                for row_idx, filled in enumerate(df['_filled_from_col_d'], start=2):  # start=2 for header
+                for row_idx, filled in enumerate(df['_filled_fallback'], start=2):  # start=2 for header
                     if filled:
                         worksheet.cell(row=row_idx, column=col_idx).fill = yellow_fill
 
@@ -118,9 +118,6 @@ if uploaded_files:
                 
                 # Consolidated Master copy
                 df_consolidated = df.copy()
-                if sheet_name.strip().upper() == 'PRODUCT_RECOMMENDATION':
-                    if 'Targeting Type' in df_consolidated.columns:
-                        df_consolidated['Match Type'] = df_consolidated['Targeting Type']
                 
                 # Reposition Month and Tab Name at the beginning
                 if 'Month' in df_consolidated.columns:
@@ -137,7 +134,7 @@ if uploaded_files:
     if consolidated_dfs:
         final_df = pd.concat(consolidated_dfs, ignore_index=True)
         
-        # Determine column order
+        # Determine column order based on PRODUCT_LISTING if available
         base_cols = ['Month', 'Tab Name']
         product_listing_cols = []
         for df in consolidated_dfs:
@@ -149,26 +146,47 @@ if uploaded_files:
         remaining_cols = [c for c in final_df.columns if c not in base_cols and c not in product_listing_cols]
         final_df = final_df.reindex(columns=base_cols + product_listing_cols + remaining_cols)
 
-        # --- FIX: NA FALLBACK LOGIC FOR COLUMN F (Ad Type / Match Type / Targeting Type) FROM COLUMN D (Tab Name) ---
-        # Identify Column F equivalent (Match Type or Targeting Type) and Column D equivalent (Tab Name)
-        col_f_name = None
-        for col_cand in ['Match Type', 'Targeting Type', 'Ad Type']:
-            if col_cand in final_df.columns:
-                col_f_name = col_cand
-                break
-        
-        if col_f_name is None and len(final_df.columns) >= 6:
-            col_f_name = final_df.columns[5]  # Positional Column F (0-indexed 5)
+        # --- REVISED FALLBACK LOGIC ---
+        # Match Type -> Fallback to Targeting Type -> Fallback to Tab Name (Col D)
+        match_col = 'Match Type' if 'Match Type' in final_df.columns else None
+        target_col = 'Targeting Type' if 'Targeting Type' in final_df.columns else None
+        tab_col = 'Tab Name' if 'Tab Name' in final_df.columns else None
 
-        col_d_name = 'Tab Name' if 'Tab Name' in final_df.columns else (final_df.columns[3] if len(final_df.columns) >= 4 else None)
+        # Helper to detect NA / Empty strings
+        def is_na_series(series):
+            if series is None or series.empty:
+                return pd.Series(True, index=final_df.index)
+            cleaned = series.astype(str).str.strip().str.upper()
+            return series.isna() | cleaned.isin(['NA', 'N/A', 'NAN', 'NONE', ''])
 
-        # Create tracking flag for filled rows
-        final_df['_filled_from_col_d'] = False
+        final_df['_filled_fallback'] = False
 
-        if col_f_name and col_d_name:
-            na_mask = final_df[col_f_name].isna() | (final_df[col_f_name].astype(str).str.strip().str.upper().isin(['NA', 'N/A', 'NAN', '']))
-            final_df.loc[na_mask, '_filled_from_col_d'] = True
-            final_df.loc[na_mask, col_f_name] = final_df.loc[na_mask, col_d_name]
+        if match_col:
+            na_match = is_na_series(final_df[match_col])
+
+            # 1. Fill NA in Match Type from Targeting Type if available
+            if target_col:
+                valid_target = ~is_na_series(final_df[target_col])
+                fill_from_target = na_match & valid_target
+                final_df.loc[fill_from_target, match_col] = final_df.loc[fill_from_target, target_col]
+                final_df.loc[fill_from_target, '_filled_fallback'] = True
+                
+                # Update NA mask for remaining un-filled rows
+                na_match = is_na_series(final_df[match_col])
+
+            # 2. Fill remaining NA in Match Type from Tab Name (Column D)
+            if tab_col:
+                fill_from_tab = na_match
+                final_df.loc[fill_from_tab, match_col] = final_df.loc[fill_from_tab, tab_col]
+                final_df.loc[fill_from_tab, '_filled_fallback'] = True
+        elif target_col:
+            # If Match Type column doesn't exist, create it from Targeting Type / Tab Name
+            final_df['Match Type'] = final_df[target_col]
+            na_match = is_na_series(final_df['Match Type'])
+            if tab_col:
+                final_df.loc[na_match, 'Match Type'] = final_df.loc[na_match, tab_col]
+                final_df.loc[na_match, '_filled_fallback'] = True
+            match_col = 'Match Type'
 
         # Helper numeric extractor
         def get_numeric_col(df, possible_cols):
@@ -192,16 +210,11 @@ if uploaded_files:
 
         final_df['_budget_consumed'] = get_numeric_col(final_df, ['Estimated Budget Consumed', 'Budget Consumed', 'Spend'])
 
-        # Unified Ad Type / Targeting Category column
-        ad_type_series = pd.Series(index=final_df.index, dtype=object)
-        for target_col in ['Match Type', 'Targeting Type']:
-            if target_col in final_df.columns:
-                ad_type_series = ad_type_series.fillna(final_df[target_col])
-        
-        if 'Tab Name' in final_df.columns:
-            ad_type_series = ad_type_series.fillna(final_df['Tab Name'])
-            
-        final_df['Ad Type Combined'] = ad_type_series.fillna("Other")
+        # Unified Ad Type column for analytics grouping
+        if match_col and match_col in final_df.columns:
+            final_df['Ad Type Combined'] = final_df[match_col].fillna("Other")
+        else:
+            final_df['Ad Type Combined'] = "Other"
 
         # --- WEEK BUCKET LOGIC (Parse DD-MM-YYYY format) ---
         date_col = None
@@ -273,7 +286,7 @@ if uploaded_files:
 
         st.divider()
 
-        # Helper function for grouping metrics with specific column structure
+        # Helper function for grouping metrics
         def compute_grouped_table(df_subset, group_col, selected_item="All"):
             if group_col not in df_subset.columns:
                 return pd.DataFrame()
@@ -342,7 +355,6 @@ if uploaded_files:
                 else:
                     styler = styler.applymap(style_roas, subset=['ROAS'])
             
-            # Middle/Center align all cell contents
             styler = styler.set_properties(**{'text-align': 'center'})
             
             format_dict = {
@@ -355,23 +367,22 @@ if uploaded_files:
                 'ROAS': '{:.2f}x',
                 'ACOS': '{:.2f}%'
             }
-            # Only format columns that actually exist in the dataframe
             active_formats = {k: v for k, v in format_dict.items() if k in df.columns}
             
             return styler.format(active_formats)
 
-        # Highlight function for raw & preview dataframes
+        # Highlight function for fallback-filled Match Type cells
         def highlight_filled_cells(df):
             styler = df.style
-            if '_filled_from_col_d' in df.columns and col_f_name and col_f_name in df.columns:
-                def highlight_col_f(row):
+            if '_filled_fallback' in df.columns and match_col and match_col in df.columns:
+                def highlight_match_col(row):
                     styles = [''] * len(row)
-                    if row.get('_filled_from_col_d', False):
-                        f_idx = row.index.get_loc(col_f_name)
-                        styles[f_idx] = 'background-color: #FFF2CC; font-weight: bold; color: #856404;'
+                    if row.get('_filled_fallback', False):
+                        col_idx = row.index.get_loc(match_col)
+                        styles[col_idx] = 'background-color: #FFF2CC; font-weight: bold; color: #856404;'
                     return styles
 
-                styler = styler.apply(highlight_col_f, axis=1)
+                styler = styler.apply(highlight_match_col, axis=1)
             return styler
 
         # --- MAIN NAVIGATION TABS ---
@@ -398,11 +409,10 @@ if uploaded_files:
 
         # TAB 2: Consolidated Master Dataset Preview
         with main_tab2:
-            st.caption("Preview the combined dataset across all uploaded files before export. Yellow highlighted cells indicate values automatically filled from Tab Name (Col D) when Col F was missing/NA.")
+            st.caption("Preview the combined dataset across all uploaded files. Yellow highlighted cells in 'Match Type' indicate values filled via fallback logic (Targeting Type ➔ Tab Name).")
             preview_clean_df = final_df.drop(columns=['_impressions', '_direct_atc', '_indirect_atc', '_atc', '_direct_orders', '_indirect_orders', '_orders', '_direct_sales', '_indirect_sales', '_sales', '_budget_consumed', '_date_dt', 'Ad Type Combined'], errors='ignore')
             st.write(f"Total Rows Consolidated: **{len(preview_clean_df):,}**")
             
-            # Apply styling to highlight NA-replaced values in Column F
             st.dataframe(highlight_filled_cells(preview_clean_df.head(100)), use_container_width=True)
 
         # TAB 3: Campaign Performance
@@ -416,7 +426,6 @@ if uploaded_files:
                 if not campaign_df.empty:
                     st.dataframe(style_dataframe(campaign_df), use_container_width=True, hide_index=True)
                     
-                    # Download XLSX Button for Campaign Data
                     excel_campaign = convert_df_to_excel(campaign_df, sheet_name="Campaign_Performance")
                     st.download_button(
                         label="📥 Download Campaign Performance Excel (.xlsx)",
@@ -430,7 +439,7 @@ if uploaded_files:
             else:
                 st.info("No 'Campaign Name' column found in dataset.")
 
-        # TAB 4: Ad Type Performance (With Numbers/Metric Amounts on Pie Slices)
+        # TAB 4: Ad Type Performance
         with main_tab4:
             st.caption("Aggregated performance & share analysis across Ad Types & Match Types.")
             if 'Ad Type Combined' in filtered_df.columns:
@@ -441,10 +450,7 @@ if uploaded_files:
                 if not adtype_df.empty:
                     st.dataframe(style_dataframe(adtype_df), use_container_width=True, hide_index=True)
                     
-                    # --- Dual Pie Charts: Spends Share vs Sales Share with Metric Values ---
                     st.markdown("#### 🥧 Ad Type Share Breakdown")
-                    
-                    # Professional Blue Color Palette
                     blue_palette = ['#03045E', '#0077B6', '#0096C7', '#00B4D8', '#48CAE4', '#90E0EF', '#ADE8F4', '#CAF0F8']
                     
                     pie_fig = make_subplots(
@@ -453,7 +459,6 @@ if uploaded_files:
                         subplot_titles=["<b>Spends Share by Ad Type</b>", "<b>Sales Share by Ad Type</b>"]
                     )
 
-                    # Spends Pie Chart (Displays Label + Metric Value in ₹ + Percentage on slice)
                     pie_fig.add_trace(
                         go.Pie(
                             labels=adtype_df['MATCH / AD TYPE'],
@@ -468,7 +473,6 @@ if uploaded_files:
                         row=1, col=1
                     )
 
-                    # Sales Pie Chart (Displays Label + Metric Value in ₹ + Percentage on slice)
                     pie_fig.add_trace(
                         go.Pie(
                             labels=adtype_df['MATCH / AD TYPE'],
@@ -493,7 +497,6 @@ if uploaded_files:
 
                     st.plotly_chart(pie_fig, use_container_width=True)
 
-                    # Download XLSX Button for Ad Type Data
                     excel_adtype = convert_df_to_excel(adtype_df, sheet_name="Ad_Type_Performance")
                     st.download_button(
                         label="📥 Download Ad Type Performance Excel (.xlsx)",
@@ -524,7 +527,6 @@ if uploaded_files:
                 if not search_df.empty:
                     st.dataframe(style_dataframe(search_df), use_container_width=True, hide_index=True, height=500)
                     
-                    # Download XLSX Button for Search Term Data
                     excel_search = convert_df_to_excel(search_df, sheet_name="Search_Term_Performance")
                     st.download_button(
                         label="📥 Download Search Term Performance Excel (.xlsx)",
@@ -545,15 +547,12 @@ if uploaded_files:
             if 'Week' in filtered_df.columns and filtered_df['Week'].notna().any():
                 weekly_df = compute_grouped_table(filtered_df, 'Week', "All")
                 
-                # Explicit ordering Week 1 to Week 5
                 week_order = ['Week 1', 'Week 2', 'Week 3', 'Week 4', 'Week 5']
                 weekly_df['Week_Cat'] = pd.Categorical(weekly_df['WEEK'], categories=week_order, ordered=True)
                 weekly_df = weekly_df.sort_values('Week_Cat').drop(columns=['Week_Cat'])
 
-                # Plotly Chart
                 fig = make_subplots(specs=[[{"secondary_y": True}]])
 
-                # SPENDS Bar
                 fig.add_trace(
                     go.Bar(
                         x=weekly_df['WEEK'],
@@ -566,7 +565,6 @@ if uploaded_files:
                     secondary_y=False
                 )
 
-                # SALES Bar
                 fig.add_trace(
                     go.Bar(
                         x=weekly_df['WEEK'],
@@ -579,7 +577,6 @@ if uploaded_files:
                     secondary_y=False
                 )
 
-                # ROAS Trend Line
                 fig.add_trace(
                     go.Scatter(
                         x=weekly_df['WEEK'],
@@ -606,15 +603,13 @@ if uploaded_files:
                 )
 
                 st.plotly_chart(fig, use_container_width=True)
-
-                # Weekly Data Table Display
                 st.dataframe(style_dataframe(weekly_df), use_container_width=True, hide_index=True)
             else:
                 st.info("No valid Date column found or dates could not be parsed to assign week buckets.")
 
         st.divider()
 
-        # Output Excel Generation with Formatting for NA Replacement
+        # Output Excel Generation with Formatting for Fallback Replacements
         st.subheader("💾 Download Consolidated Excel Workbook")
         
         buffer_multi = io.BytesIO()
@@ -626,18 +621,17 @@ if uploaded_files:
             
             master_export_df = final_df.drop(columns=['_impressions', '_direct_atc', '_indirect_atc', '_atc', '_direct_orders', '_indirect_orders', '_orders', '_direct_sales', '_indirect_sales', '_sales', '_budget_consumed', '_date_dt', 'Ad Type Combined'], errors='ignore')
             
-            # Save master sheet
             master_sheet_name = 'Consolidated_Master'
             master_export_df.to_excel(writer, sheet_name=master_sheet_name, index=False)
             
-            # Apply yellow highlight formatting in Excel for NA-replaced Column F values
-            if '_filled_from_col_d' in master_export_df.columns and col_f_name and col_f_name in master_export_df.columns:
+            # Apply yellow highlight formatting in Excel for fallback-filled Match Type values
+            if '_filled_fallback' in master_export_df.columns and match_col and match_col in master_export_df.columns:
                 worksheet = writer.sheets[master_sheet_name]
                 from openpyxl.styles import PatternFill
                 yellow_fill = PatternFill(start_color="FFF2CC", end_color="FFF2CC", fill_type="solid")
                 
-                col_idx = master_export_df.columns.get_loc(col_f_name) + 1  # 1-indexed for openpyxl
-                for row_idx, filled in enumerate(master_export_df['_filled_from_col_d'], start=2):
+                col_idx = master_export_df.columns.get_loc(match_col) + 1  # 1-indexed for openpyxl
+                for row_idx, filled in enumerate(master_export_df['_filled_fallback'], start=2):
                     if filled:
                         worksheet.cell(row=row_idx, column=col_idx).fill = yellow_fill
 
