@@ -5,6 +5,8 @@ import numpy as np
 import streamlit as st
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
+import openpyxl
+from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
 
 st.set_page_config(
     page_title="Blinkit Report Merger & Analytics",
@@ -17,6 +19,7 @@ st.markdown("""
 <style>
     [data-testid="stDataFrame"] th, [data-testid="stDataFrame"] td {
         text-align: center !important;
+        vertical-align: middle !important;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -24,53 +27,222 @@ st.markdown("""
 st.title("📊 Blinkit Ad Report Merger & Analytics")
 st.write("Upload up to 5 monthly Excel ad campaign spreadsheets (.xlsx, .xls, .xlsb, .xlsm). Preview raw & consolidated sheets, view Month-on-Month Comparison tables, and analyze multi-metric curve & bar trend comparisons.")
 
-# Helper function to convert dataframe to downloadable Excel bytes with custom formatting/highlighting
-def convert_df_to_excel(df, sheet_name="Performance", highlight_col=None):
+# Helper function to style downloadable Excel Pivot tables with custom styling, borders, gap row, and Grand Total
+def style_and_export_pivot(pivot_df, sheet_name="Comparison"):
     buffer = io.BytesIO()
-    with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
-        df.to_excel(writer, sheet_name=sheet_name, index=isinstance(df.index, pd.MultiIndex))
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = sheet_name[:31]
+    
+    # Styles definition
+    top_header_fill = PatternFill(start_color="1F4E78", end_color="1F4E78", fill_type="solid")  # Dark Steel Blue
+    top_header_font = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
+    
+    sec_header_fill = PatternFill(start_color="D9E1F2", end_color="D9E1F2", fill_type="solid")  # Soft Ice Blue
+    sec_header_font = Font(name="Calibri", size=10, bold=True, color="1F4E78")
+    
+    index_fill = PatternFill(start_color="F2F2F2", end_color="F2F2F2", fill_type="solid")       # Light Slate Tint
+    index_font = Font(name="Calibri", size=10, bold=True, color="000000")
+    
+    total_fill = PatternFill(start_color="E9ECEF", end_color="E9ECEF", fill_type="solid")       # Grand Total Highlight
+    total_font = Font(name="Calibri", size=10, bold=True, color="000000")
+    
+    data_font = Font(name="Calibri", size=10, color="000000")
+    
+    align_center = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    align_left = Alignment(horizontal="left", vertical="center")
+    
+    thin_border = Border(
+        left=Side(style='thin', color='BFBFBF'),
+        right=Side(style='thin', color='BFBFBF'),
+        top=Side(style='thin', color='BFBFBF'),
+        bottom=Side(style='thin', color='BFBFBF')
+    )
+
+    if isinstance(pivot_df.columns, pd.MultiIndex):
+        months = pivot_df.columns.get_level_values(0)
+        metrics = pivot_df.columns.get_level_values(1)
+        entity_title = pivot_df.index.name if pivot_df.index.name else ""
+
+        # Row 1: Months (Top Level Header)
+        ws.cell(row=1, column=1, value="").fill = top_header_fill
+        ws.cell(row=1, column=1).border = thin_border
         
-        if highlight_col and '_filled_fallback' in df.columns:
-            workbook = writer.book
-            worksheet = writer.sheets[sheet_name]
-            from openpyxl.styles import PatternFill
-            yellow_fill = PatternFill(start_color="FFF2CC", end_color="FFF2CC", fill_type="solid")
+        current_col = 2
+        for month in pivot_df.columns.levels[0]:
+            sub_cols = [c for c in pivot_df.columns if c[0] == month]
+            num_sub = len(sub_cols)
+            if num_sub > 1:
+                ws.merge_cells(start_row=1, start_column=current_col, end_row=1, end_column=current_col + num_sub - 1)
+            cell = ws.cell(row=1, column=current_col, value=str(month))
+            cell.fill = top_header_fill
+            cell.font = top_header_font
+            cell.alignment = align_center
             
-            col_idx = None
-            for idx, col in enumerate(df.columns, start=1):
-                if col == highlight_col:
-                    col_idx = idx
-                    break
+            for c in range(current_col, current_col + num_sub):
+                ws.cell(row=1, column=c).border = thin_border
+                ws.cell(row=1, column=c).fill = top_header_fill
+            current_col += num_sub
+
+        # Row 2: Metrics (Second Level Header)
+        cell_a2 = ws.cell(row=2, column=1, value=str(entity_title))
+        cell_a2.fill = index_fill
+        cell_a2.font = index_font
+        cell_a2.alignment = align_center
+        cell_a2.border = thin_border
+
+        for col_idx, metric in enumerate(metrics, start=2):
+            cell = ws.cell(row=2, column=col_idx, value=str(metric))
+            cell.fill = sec_header_fill
+            cell.font = sec_header_font
+            cell.alignment = align_center
+            cell.border = thin_border
+
+        # Row 3: Gap row from Column B onwards (B3 onwards)
+        cell_a3 = ws.cell(row=3, column=1, value="")
+        cell_a3.border = thin_border
+        for col_idx in range(2, len(metrics) + 2):
+            gap_cell = ws.cell(row=3, column=col_idx, value="")
+            gap_cell.border = thin_border
+
+        # Row 4 onwards: Data Rows
+        start_data_row = 4
+        for r_idx, (idx_val, row_data) in enumerate(pivot_df.iterrows(), start=start_data_row):
+            is_grand_total = (str(idx_val).strip().lower() == 'grand total')
             
-            if col_idx:
-                for row_idx, filled in enumerate(df['_filled_fallback'], start=2):
-                    if filled:
-                        worksheet.cell(row=row_idx, column=col_idx).fill = yellow_fill
+            # Row Index Label
+            idx_cell = ws.cell(row=r_idx, column=1, value=str(idx_val))
+            idx_cell.fill = total_fill if is_grand_total else index_fill
+            idx_cell.font = total_font if is_grand_total else index_font
+            idx_cell.alignment = align_left
+            idx_cell.border = thin_border
 
-    buffer.seek(0)
-    return buffer.getvalue()
+            # Row Data Values
+            for c_idx, val in enumerate(row_data, start=2):
+                val_cell = ws.cell(row=r_idx, column=c_idx, value=val)
+                val_cell.font = total_font if is_grand_total else data_font
+                if is_grand_total:
+                    val_cell.fill = total_fill
+                val_cell.alignment = align_center
+                val_cell.border = thin_border
+                if isinstance(val, (int, float, np.number)):
+                    val_cell.number_format = '#,##0.00' if isinstance(val, float) else '#,##0'
+    else:
+        for col_idx, col_name in enumerate(pivot_df.columns, start=1):
+            cell = ws.cell(row=1, column=col_idx, value=str(col_name))
+            cell.fill = top_header_fill
+            cell.font = top_header_font
+            cell.alignment = align_center
+            cell.border = thin_border
 
-# Helper function to export multi-level header Pivot Tables (Single Sheet)
-def convert_pivot_to_excel(pivot_df, sheet_name="Comparison"):
-    buffer = io.BytesIO()
-    with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
-        pivot_df.to_excel(writer, sheet_name=sheet_name)
+        for r_idx, row_data in enumerate(pivot_df.values, start=2):
+            for c_idx, val in enumerate(row_data, start=1):
+                val_cell = ws.cell(row=r_idx, column=c_idx, value=val)
+                val_cell.font = data_font
+                val_cell.alignment = align_center
+                val_cell.border = thin_border
+
+    wb.save(buffer)
     buffer.seek(0)
     return buffer.getvalue()
 
 # Helper function to export ALL 4 MoM Pivot Tables into a single combined Excel Workbook
 def convert_all_pivots_to_excel(pivot_dict):
     buffer = io.BytesIO()
-    with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
-        for sheet_name, pivot_df in pivot_dict.items():
-            if pivot_df is not None and not pivot_df.empty:
-                pivot_df.to_excel(writer, sheet_name=sheet_name[:31])
+    wb = openpyxl.Workbook()
+    wb.remove(wb.active)  # Remove default sheet
+
+    top_header_fill = PatternFill(start_color="1F4E78", end_color="1F4E78", fill_type="solid")
+    top_header_font = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
+    sec_header_fill = PatternFill(start_color="D9E1F2", end_color="D9E1F2", fill_type="solid")
+    sec_header_font = Font(name="Calibri", size=10, bold=True, color="1F4E78")
+    index_fill = PatternFill(start_color="F2F2F2", end_color="F2F2F2", fill_type="solid")
+    index_font = Font(name="Calibri", size=10, bold=True, color="000000")
+    total_fill = PatternFill(start_color="E9ECEF", end_color="E9ECEF", fill_type="solid")
+    total_font = Font(name="Calibri", size=10, bold=True, color="000000")
+    data_font = Font(name="Calibri", size=10, color="000000")
+    
+    align_center = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    align_left = Alignment(horizontal="left", vertical="center")
+    thin_border = Border(
+        left=Side(style='thin', color='BFBFBF'),
+        right=Side(style='thin', color='BFBFBF'),
+        top=Side(style='thin', color='BFBFBF'),
+        bottom=Side(style='thin', color='BFBFBF')
+    )
+
+    for sheet_name, pivot_df in pivot_dict.items():
+        if pivot_df is not None and not pivot_df.empty:
+            ws = wb.create_sheet(title=sheet_name[:31])
+            months = pivot_df.columns.get_level_values(0)
+            metrics = pivot_df.columns.get_level_values(1)
+            entity_title = pivot_df.index.name if pivot_df.index.name else ""
+
+            # Row 1: Months
+            ws.cell(row=1, column=1, value="").fill = top_header_fill
+            ws.cell(row=1, column=1).border = thin_border
+            
+            current_col = 2
+            for month in pivot_df.columns.levels[0]:
+                sub_cols = [c for c in pivot_df.columns if c[0] == month]
+                num_sub = len(sub_cols)
+                if num_sub > 1:
+                    ws.merge_cells(start_row=1, start_column=current_col, end_row=1, end_column=current_col + num_sub - 1)
+                cell = ws.cell(row=1, column=current_col, value=str(month))
+                cell.fill = top_header_fill
+                cell.font = top_header_font
+                cell.alignment = align_center
+                
+                for c in range(current_col, current_col + num_sub):
+                    ws.cell(row=1, column=c).border = thin_border
+                    ws.cell(row=1, column=c).fill = top_header_fill
+                current_col += num_sub
+
+            # Row 2: Metrics
+            cell_a2 = ws.cell(row=2, column=1, value=str(entity_title))
+            cell_a2.fill = index_fill
+            cell_a2.font = index_font
+            cell_a2.alignment = align_center
+            cell_a2.border = thin_border
+
+            for col_idx, metric in enumerate(metrics, start=2):
+                cell = ws.cell(row=2, column=col_idx, value=str(metric))
+                cell.fill = sec_header_fill
+                cell.font = sec_header_font
+                cell.alignment = align_center
+                cell.border = thin_border
+
+            # Row 3: Gap row from B3 onwards
+            ws.cell(row=3, column=1, value="").border = thin_border
+            for col_idx in range(2, len(metrics) + 2):
+                ws.cell(row=3, column=col_idx, value="").border = thin_border
+
+            # Data Rows
+            for r_idx, (idx_val, row_data) in enumerate(pivot_df.iterrows(), start=4):
+                is_grand_total = (str(idx_val).strip().lower() == 'grand total')
+                
+                idx_cell = ws.cell(row=r_idx, column=1, value=str(idx_val))
+                idx_cell.fill = total_fill if is_grand_total else index_fill
+                idx_cell.font = total_font if is_grand_total else index_font
+                idx_cell.alignment = align_left
+                idx_cell.border = thin_border
+
+                for c_idx, val in enumerate(row_data, start=2):
+                    val_cell = ws.cell(row=r_idx, column=c_idx, value=val)
+                    val_cell.font = total_font if is_grand_total else data_font
+                    if is_grand_total:
+                        val_cell.fill = total_fill
+                    val_cell.alignment = align_center
+                    val_cell.border = thin_border
+                    if isinstance(val, (int, float, np.number)):
+                        val_cell.number_format = '#,##0.00' if isinstance(val, float) else '#,##0'
+
+    wb.save(buffer)
     buffer.seek(0)
     return buffer.getvalue()
 
 # 5 Dedicated Upload Boxes
 col1, col2, col3, col4, col5 = st.columns(5)
-
 uploaded_files = []
 
 with col1:
@@ -106,7 +278,6 @@ if uploaded_files:
             xls = pd.ExcelFile(uploaded_file)
             for sheet_name in xls.sheet_names:
                 df = pd.read_excel(xls, sheet_name=sheet_name)
-                
                 raw_files_dict[uploaded_file.name][sheet_name] = df.copy()
                 
                 # --- Dynamic Month Derivation ---
@@ -129,7 +300,6 @@ if uploaded_files:
                 consolidated_raw_tabs[sheet_name].append(df_raw)
                 
                 df_consolidated = df.copy()
-                
                 if 'Month' in df_consolidated.columns:
                     col_month = df_consolidated.pop('Month')
                     df_consolidated.insert(0, 'Month', col_month)
@@ -170,7 +340,6 @@ if uploaded_files:
 
         if match_col:
             na_match = is_na_series(final_df[match_col])
-
             if target_col:
                 valid_target = ~is_na_series(final_df[target_col])
                 fill_from_target = na_match & valid_target
@@ -274,12 +443,14 @@ if uploaded_files:
             col_order = [display_name, 'IMPRESSIONS', 'CPM', 'ATC', 'ORDERS', 'SPENDS', 'SALES', 'ROAS', 'ACOS']
             return grouped.reindex(columns=col_order)
 
-        # Helper function for Month-on-Month Comparison matrix formatting (Pivot View)
+        # Helper function for Month-on-Month Comparison matrix with GRAND TOTAL row
         def create_mom_comparison_table(df_input, entity_col):
             if entity_col not in df_input.columns:
                 return pd.DataFrame()
             
             working_df = df_input.dropna(subset=[entity_col, 'Month']).copy()
+            if working_df.empty:
+                return pd.DataFrame()
             
             grouped = working_df.groupby([entity_col, 'Month']).agg(
                 Impressions=('_impressions', 'sum'),
@@ -310,6 +481,32 @@ if uploaded_files:
             )
             
             pivot_df = pivot_df.reindex(columns=sorted_cols).fillna(0)
+
+            # --- CALCULATE GRAND TOTAL ROW ---
+            grand_total_series = {}
+            for month in all_months:
+                month_df = working_df[working_df['Month'] == month]
+                total_imp = month_df['_impressions'].sum()
+                total_atc = month_df['_atc'].sum()
+                total_orders = month_df['_orders'].sum()
+                total_spends = month_df['_budget_consumed'].sum()
+                total_sales = month_df['_sales'].sum()
+
+                total_cpm = round((total_spends / total_imp) * 1000, 2) if total_imp > 0 else 0.0
+                total_roas = round(total_sales / total_spends, 2) if total_spends > 0 else 0.0
+                total_acos = round((total_spends / total_sales) * 100, 2) if total_sales > 0 else 0.0
+
+                grand_total_series[(month, 'Impressions')] = total_imp
+                grand_total_series[(month, 'CPM')] = total_cpm
+                grand_total_series[(month, 'ATC')] = total_atc
+                grand_total_series[(month, 'Orders')] = total_orders
+                grand_total_series[(month, 'Spends')] = total_spends
+                grand_total_series[(month, 'Sales')] = total_sales
+                grand_total_series[(month, 'ROAS')] = total_roas
+                grand_total_series[(month, 'ACOS')] = total_acos
+
+            pivot_df.loc['Grand Total'] = grand_total_series
+            pivot_df.index.name = entity_col
             return pivot_df
 
         # --- GLOBAL MONTH FILTER FOR DASHBOARD ---
@@ -421,7 +618,7 @@ if uploaded_files:
                 if camp_pivot is not None and not camp_pivot.empty:
                     st.dataframe(camp_pivot, use_container_width=True)
                     
-                    excel_camp_pivot = convert_pivot_to_excel(camp_pivot, sheet_name="Campaign_MoM")
+                    excel_camp_pivot = style_and_export_pivot(camp_pivot, sheet_name="Campaign_MoM")
                     st.download_button(
                         label="📥 Download Campaign Comparison Table (.xlsx)",
                         data=excel_camp_pivot,
@@ -437,7 +634,7 @@ if uploaded_files:
                 if ad_pivot is not None and not ad_pivot.empty:
                     st.dataframe(ad_pivot, use_container_width=True)
                     
-                    excel_ad_pivot = convert_pivot_to_excel(ad_pivot, sheet_name="AdType_MoM")
+                    excel_ad_pivot = style_and_export_pivot(ad_pivot, sheet_name="AdType_MoM")
                     st.download_button(
                         label="📥 Download Ad Type Comparison Table (.xlsx)",
                         data=excel_ad_pivot,
@@ -451,7 +648,7 @@ if uploaded_files:
                 if kw_pivot is not None and not kw_pivot.empty:
                     st.dataframe(kw_pivot, use_container_width=True)
                     
-                    excel_kw_pivot = convert_pivot_to_excel(kw_pivot, sheet_name="Keyword_MoM")
+                    excel_kw_pivot = style_and_export_pivot(kw_pivot, sheet_name="Keyword_MoM")
                     st.download_button(
                         label="📥 Download Keyword Comparison Table (.xlsx)",
                         data=excel_kw_pivot,
@@ -467,7 +664,7 @@ if uploaded_files:
                 if week_pivot is not None and not week_pivot.empty:
                     st.dataframe(week_pivot, use_container_width=True)
                     
-                    excel_week_pivot = convert_pivot_to_excel(week_pivot, sheet_name="Weekly_MoM")
+                    excel_week_pivot = style_and_export_pivot(week_pivot, sheet_name="Weekly_MoM")
                     st.download_button(
                         label="📥 Download Weekly Comparison Table (.xlsx)",
                         data=excel_week_pivot,
