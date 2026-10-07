@@ -15,7 +15,6 @@ st.set_page_config(
 # Custom CSS for center-aligning dataframe headers & cells
 st.markdown("""
 <style>
-    /* Center align headers and cells in Streamlit dataframes */
     [data-testid="stDataFrame"] th, [data-testid="stDataFrame"] td {
         text-align: center !important;
     }
@@ -23,22 +22,20 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.title("📊 Blinkit Ad Report Merger & Analytics")
-st.write("Upload up to 5 monthly Excel ad campaign spreadsheets (.xlsx, .xls, .xlsb, .xlsm). Preview raw & consolidated sheets, inspect campaign performance, and view weekly trend lines.")
+st.write("Upload up to 5 monthly Excel ad campaign spreadsheets (.xlsx, .xls, .xlsb, .xlsm). Preview raw & consolidated sheets, view Month-on-Month Comparison tables, and analyze dot trend comparisons.")
 
 # Helper function to convert dataframe to downloadable Excel bytes with custom formatting/highlighting
 def convert_df_to_excel(df, sheet_name="Performance", highlight_col=None):
     buffer = io.BytesIO()
     with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
-        df.to_excel(writer, sheet_name=sheet_name, index=False)
+        df.to_excel(writer, sheet_name=sheet_name, index=isinstance(df.index, pd.MultiIndex))
         
-        # Highlight filled rows in Excel if requested
         if highlight_col and '_filled_fallback' in df.columns:
             workbook = writer.book
             worksheet = writer.sheets[sheet_name]
             from openpyxl.styles import PatternFill
             yellow_fill = PatternFill(start_color="FFF2CC", end_color="FFF2CC", fill_type="solid")
             
-            # Find column index for highlight_col
             col_idx = None
             for idx, col in enumerate(df.columns, start=1):
                 if col == highlight_col:
@@ -46,10 +43,18 @@ def convert_df_to_excel(df, sheet_name="Performance", highlight_col=None):
                     break
             
             if col_idx:
-                for row_idx, filled in enumerate(df['_filled_fallback'], start=2):  # start=2 for header
+                for row_idx, filled in enumerate(df['_filled_fallback'], start=2):
                     if filled:
                         worksheet.cell(row=row_idx, column=col_idx).fill = yellow_fill
 
+    buffer.seek(0)
+    return buffer.getvalue()
+
+# Helper function to export multi-level header Pivot Tables (Comparison Tables) to Excel
+def convert_pivot_to_excel(pivot_df, sheet_name="Comparison"):
+    buffer = io.BytesIO()
+    with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+        pivot_df.to_excel(writer, sheet_name=sheet_name)
     buffer.seek(0)
     return buffer.getvalue()
 
@@ -80,8 +85,8 @@ with col5:
 
 if uploaded_files:
     consolidated_dfs = []
-    raw_files_dict = {}         # {filename: {sheet_name: df}}
-    consolidated_raw_tabs = {}  # {sheet_name: [df1, df2, ...]}
+    raw_files_dict = {}
+    consolidated_raw_tabs = {}
 
     for uploaded_file in uploaded_files:
         fallback_month_name = os.path.splitext(uploaded_file.name)[0].upper()
@@ -92,10 +97,9 @@ if uploaded_files:
             for sheet_name in xls.sheet_names:
                 df = pd.read_excel(xls, sheet_name=sheet_name)
                 
-                # Store raw sheet preview
                 raw_files_dict[uploaded_file.name][sheet_name] = df.copy()
                 
-                # --- Dynamic Month Derivation from Date Column ---
+                # --- Dynamic Month Derivation ---
                 date_col = None
                 for col_candidate in ['Date', 'date', 'Day', 'DATE']:
                     if col_candidate in df.columns:
@@ -109,17 +113,13 @@ if uploaded_files:
                 else:
                     df['Month'] = fallback_month_name
 
-                # Raw tab copy for consolidated output workbook
                 df_raw = df.copy()
-                
                 if sheet_name not in consolidated_raw_tabs:
                     consolidated_raw_tabs[sheet_name] = []
                 consolidated_raw_tabs[sheet_name].append(df_raw)
                 
-                # Consolidated Master copy
                 df_consolidated = df.copy()
                 
-                # Reposition Month and Tab Name at the beginning
                 if 'Month' in df_consolidated.columns:
                     col_month = df_consolidated.pop('Month')
                     df_consolidated.insert(0, 'Month', col_month)
@@ -134,7 +134,6 @@ if uploaded_files:
     if consolidated_dfs:
         final_df = pd.concat(consolidated_dfs, ignore_index=True)
         
-        # Determine column order based on PRODUCT_LISTING if available
         base_cols = ['Month', 'Tab Name']
         product_listing_cols = []
         for df in consolidated_dfs:
@@ -146,13 +145,11 @@ if uploaded_files:
         remaining_cols = [c for c in final_df.columns if c not in base_cols and c not in product_listing_cols]
         final_df = final_df.reindex(columns=base_cols + product_listing_cols + remaining_cols)
 
-        # --- REVISED FALLBACK LOGIC ---
-        # Match Type -> Fallback to Targeting Type -> Fallback to Tab Name (Col D)
+        # --- FALLBACK LOGIC ---
         match_col = 'Match Type' if 'Match Type' in final_df.columns else None
         target_col = 'Targeting Type' if 'Targeting Type' in final_df.columns else None
         tab_col = 'Tab Name' if 'Tab Name' in final_df.columns else None
 
-        # Helper to detect NA / Empty strings
         def is_na_series(series):
             if series is None or series.empty:
                 return pd.Series(True, index=final_df.index)
@@ -164,23 +161,18 @@ if uploaded_files:
         if match_col:
             na_match = is_na_series(final_df[match_col])
 
-            # 1. Fill NA in Match Type from Targeting Type if available
             if target_col:
                 valid_target = ~is_na_series(final_df[target_col])
                 fill_from_target = na_match & valid_target
                 final_df.loc[fill_from_target, match_col] = final_df.loc[fill_from_target, target_col]
                 final_df.loc[fill_from_target, '_filled_fallback'] = True
-                
-                # Update NA mask for remaining un-filled rows
                 na_match = is_na_series(final_df[match_col])
 
-            # 2. Fill remaining NA in Match Type from Tab Name (Column D)
             if tab_col:
                 fill_from_tab = na_match
                 final_df.loc[fill_from_tab, match_col] = final_df.loc[fill_from_tab, tab_col]
                 final_df.loc[fill_from_tab, '_filled_fallback'] = True
         elif target_col:
-            # If Match Type column doesn't exist, create it from Targeting Type / Tab Name
             final_df['Match Type'] = final_df[target_col]
             na_match = is_na_series(final_df['Match Type'])
             if tab_col:
@@ -210,13 +202,12 @@ if uploaded_files:
 
         final_df['_budget_consumed'] = get_numeric_col(final_df, ['Estimated Budget Consumed', 'Budget Consumed', 'Spend'])
 
-        # Unified Ad Type column for analytics grouping
         if match_col and match_col in final_df.columns:
             final_df['Ad Type Combined'] = final_df[match_col].fillna("Other")
         else:
             final_df['Ad Type Combined'] = "Other"
 
-        # --- WEEK BUCKET LOGIC (Parse DD-MM-YYYY format) ---
+        # --- WEEK BUCKET LOGIC ---
         date_col = None
         for col_candidate in ['Date', 'date', 'Day', 'DATE']:
             if col_candidate in final_df.columns:
@@ -225,68 +216,21 @@ if uploaded_files:
 
         if date_col:
             final_df['_date_dt'] = pd.to_datetime(final_df[date_col], dayfirst=True, errors='coerce')
-            
             def assign_week(row):
                 dt = row['_date_dt']
-                if pd.isna(dt):
-                    return np.nan
+                if pd.isna(dt): return np.nan
                 day = dt.day
-                if 1 <= day <= 7:
-                    return "Week 1"
-                elif 8 <= day <= 14:
-                    return "Week 2"
-                elif 15 <= day <= 21:
-                    return "Week 3"
-                elif 22 <= day <= 28:
-                    return "Week 4"
-                elif day >= 29:
-                    return "Week 5"
+                if 1 <= day <= 7: return "Week 1"
+                elif 8 <= day <= 14: return "Week 2"
+                elif 15 <= day <= 21: return "Week 3"
+                elif 22 <= day <= 28: return "Week 4"
+                elif day >= 29: return "Week 5"
                 return np.nan
-
             final_df['Week'] = final_df.apply(assign_week, axis=1)
         else:
             final_df['Week'] = np.nan
 
-        # --- GLOBAL MONTH FILTER ---
-        st.markdown("### 🔍 Global Dashboard Filters")
-        available_months = ["All Months"] + sorted(list(final_df['Month'].dropna().unique()))
-        selected_month = st.selectbox("Select Month Across Dashboard", available_months)
-
-        # Apply Global Month Filter
-        filtered_df = final_df.copy()
-        if selected_month != "All Months":
-            filtered_df = filtered_df[filtered_df['Month'] == selected_month]
-
-        # --- TOP LEVEL DASHBOARD METRICS ---
-        total_impressions = filtered_df['_impressions'].sum()
-        total_sales = filtered_df['_sales'].sum()
-        total_orders = filtered_df['_orders'].sum()
-        total_atc = filtered_df['_atc'].sum()
-        total_budget = filtered_df['_budget_consumed'].sum()
-        
-        overall_roas = round((total_sales / total_budget), 2) if total_budget > 0 else 0.0
-
-        st.markdown("### 📈 Overall Campaign Performance Dashboard")
-        
-        row1_col1, row1_col2, row1_col3 = st.columns(3)
-        with row1_col1:
-            st.metric("Total Impressions", f"{int(total_impressions):,}")
-        with row1_col2:
-            st.metric("Total Sales", f"₹{total_sales:,.2f}")
-        with row1_col3:
-            st.metric("Total Budget Consumed", f"₹{total_budget:,.2f}")
-
-        row2_col1, row2_col2, row2_col3 = st.columns(3)
-        with row2_col1:
-            st.metric("Overall RoAS", f"{overall_roas:.2f}x")
-        with row2_col2:
-            st.metric("Total Orders", f"{int(total_orders):,}")
-        with row2_col3:
-            st.metric("Total Add To Cart", f"{int(total_atc):,}")
-
-        st.divider()
-
-        # Helper function for grouping metrics
+        # Helper function for calculating aggregate statistics
         def compute_grouped_table(df_subset, group_col, selected_item="All"):
             if group_col not in df_subset.columns:
                 return pd.DataFrame()
@@ -308,92 +252,98 @@ if uploaded_files:
                 SALES=('_sales', 'sum')
             ).reset_index()
 
-            # CPM = (Spends / Impressions) * 1000
-            grouped['CPM'] = grouped.apply(
-                lambda r: round((r['SPENDS'] / r['IMPRESSIONS']) * 1000, 2) if r['IMPRESSIONS'] > 0 else 0.0, axis=1
-            )
-            
-            # ROAS = Sales / Spends
-            grouped['ROAS'] = grouped.apply(
-                lambda r: round(r['SALES'] / r['SPENDS'], 2) if r['SPENDS'] > 0 else 0.0, axis=1
-            )
-
-            # ACOS = (Spends / Sales) * 100
-            grouped['ACOS'] = grouped.apply(
-                lambda r: round((r['SPENDS'] / r['SALES']) * 100, 2) if r['SALES'] > 0 else 0.0, axis=1
-            )
+            grouped['CPM'] = grouped.apply(lambda r: round((r['SPENDS'] / r['IMPRESSIONS']) * 1000, 2) if r['IMPRESSIONS'] > 0 else 0.0, axis=1)
+            grouped['ROAS'] = grouped.apply(lambda r: round(r['SALES'] / r['SPENDS'], 2) if r['SPENDS'] > 0 else 0.0, axis=1)
+            grouped['ACOS'] = grouped.apply(lambda r: round((r['SPENDS'] / r['SALES']) * 100, 2) if r['SALES'] > 0 else 0.0, axis=1)
 
             display_name = group_col.upper()
-            if group_col == 'Campaign Name':
-                display_name = 'CAMPAIGN NAME'
-            elif group_col == 'Ad Type Combined':
-                display_name = 'MATCH / AD TYPE'
+            if group_col == 'Campaign Name': display_name = 'CAMPAIGN NAME'
+            elif group_col == 'Ad Type Combined': display_name = 'MATCH / AD TYPE'
 
             grouped = grouped.rename(columns={group_col: display_name})
-
-            # Reorder columns explicitly: [Entity, IMPRESSIONS, CPM, ATC, ORDERS, SPENDS, SALES, ROAS, ACOS]
             col_order = [display_name, 'IMPRESSIONS', 'CPM', 'ATC', 'ORDERS', 'SPENDS', 'SALES', 'ROAS', 'ACOS']
-            grouped = grouped.reindex(columns=col_order)
+            return grouped.reindex(columns=col_order)
 
-            return grouped
-
-        def style_roas(val):
-            try:
-                val_float = float(val)
-                if val_float < 1.0:
-                    return 'background-color: #ffcdd2; color: #b71c1c; font-weight: bold; text-align: center;'
-                else:
-                    return 'background-color: #c8e6c9; color: #1b5e20; font-weight: bold; text-align: center;'
-            except:
-                return ''
-
-        def style_dataframe(df):
-            styler = df.style
-            if 'ROAS' in df.columns:
-                if hasattr(styler, 'map'):
-                    styler = styler.map(style_roas, subset=['ROAS'])
-                else:
-                    styler = styler.applymap(style_roas, subset=['ROAS'])
+        # Helper function for Month-on-Month Comparison matrix formatting (Pivot View)
+        def create_mom_comparison_table(df_input, entity_col):
+            if entity_col not in df_input.columns:
+                return pd.DataFrame()
             
-            styler = styler.set_properties(**{'text-align': 'center'})
+            working_df = df_input.dropna(subset=[entity_col, 'Month']).copy()
             
-            format_dict = {
-                'SALES': '₹{:,.2f}', 
-                'SPENDS': '₹{:,.2f}', 
-                'CPM': '₹{:,.2f}',
-                'IMPRESSIONS': '{:,.0f}', 
-                'ORDERS': '{:,.0f}', 
-                'ATC': '{:,.0f}',
-                'ROAS': '{:.2f}x',
-                'ACOS': '{:.2f}%'
-            }
-            active_formats = {k: v for k, v in format_dict.items() if k in df.columns}
+            grouped = working_df.groupby([entity_col, 'Month']).agg(
+                Impressions=('_impressions', 'sum'),
+                ATC=('_atc', 'sum'),
+                Orders=('_orders', 'sum'),
+                Spends=('_budget_consumed', 'sum'),
+                Sales=('_sales', 'sum')
+            ).reset_index()
+
+            grouped['CPM'] = grouped.apply(lambda r: round((r['Spends'] / r['Impressions']) * 1000, 2) if r['Impressions'] > 0 else 0.0, axis=1)
+            grouped['ROAS'] = grouped.apply(lambda r: round(r['Sales'] / r['Spends'], 2) if r['Spends'] > 0 else 0.0, axis=1)
+            grouped['ACOS'] = grouped.apply(lambda r: round((r['Spends'] / r['Sales']) * 100, 2) if r['Sales'] > 0 else 0.0, axis=1)
+
+            pivot_df = grouped.pivot(
+                index=entity_col,
+                columns='Month',
+                values=['Impressions', 'CPM', 'ATC', 'Orders', 'Spends', 'Sales', 'ROAS', 'ACOS']
+            )
+
+            metrics_order = ['Impressions', 'CPM', 'ATC', 'Orders', 'Spends', 'Sales', 'ROAS', 'ACOS']
+            all_months = df_input['Month'].unique()
             
-            return styler.format(active_formats)
+            pivot_df = pivot_df.reorder_levels([1, 0], axis=1)
+            
+            sorted_cols = pd.MultiIndex.from_product(
+                [all_months, metrics_order],
+                names=['Month', 'Metric']
+            )
+            
+            pivot_df = pivot_df.reindex(columns=sorted_cols).fillna(0)
+            return pivot_df
 
-        # Highlight function for fallback-filled Match Type cells
-        def highlight_filled_cells(df):
-            styler = df.style
-            if '_filled_fallback' in df.columns and match_col and match_col in df.columns:
-                def highlight_match_col(row):
-                    styles = [''] * len(row)
-                    if row.get('_filled_fallback', False):
-                        col_idx = row.index.get_loc(match_col)
-                        styles[col_idx] = 'background-color: #FFF2CC; font-weight: bold; color: #856404;'
-                    return styles
+        # --- GLOBAL MONTH FILTER FOR DASHBOARD ---
+        st.markdown("### 🔍 Global Dashboard Filters")
+        available_months = ["All Months"] + sorted(list(final_df['Month'].dropna().unique()))
+        selected_month = st.selectbox("Select Month Across Dashboard (Excluding Comparison Tables)", available_months)
 
-                styler = styler.apply(highlight_match_col, axis=1)
-            return styler
+        filtered_df = final_df.copy()
+        if selected_month != "All Months":
+            filtered_df = filtered_df[filtered_df['Month'] == selected_month]
+
+        # Top level KPI cards
+        total_impressions = filtered_df['_impressions'].sum()
+        total_sales = filtered_df['_sales'].sum()
+        total_orders = filtered_df['_orders'].sum()
+        total_atc = filtered_df['_atc'].sum()
+        total_budget = filtered_df['_budget_consumed'].sum()
+        overall_roas = round((total_sales / total_budget), 2) if total_budget > 0 else 0.0
+
+        st.markdown("### 📈 Overall Campaign Performance Dashboard")
+        
+        row1_col1, row1_col2, row1_col3 = st.columns(3)
+        with row1_col1: st.metric("Total Impressions", f"{int(total_impressions):,}")
+        with row1_col2: st.metric("Total Sales", f"₹{total_sales:,.2f}")
+        with row1_col3: st.metric("Total Budget Consumed", f"₹{total_budget:,.2f}")
+
+        row2_col1, row2_col2, row2_col3 = st.columns(3)
+        with row2_col1: st.metric("Overall RoAS", f"{overall_roas:.2f}x")
+        with row2_col2: st.metric("Total Orders", f"{int(total_orders):,}")
+        with row2_col3: st.metric("Total Add To Cart", f"{int(total_atc):,}")
+
+        st.divider()
 
         # --- MAIN NAVIGATION TABS ---
         st.markdown("### 📑 Navigation & Performance Breakdown")
-        main_tab1, main_tab2, main_tab3, main_tab4, main_tab5, main_tab6 = st.tabs([
+        main_tab1, main_tab2, main_tab3, main_tab4, main_tab5, main_tab6, main_tab7, main_tab8 = st.tabs([
             "📄 Raw Files Preview",
-            "📌 Consolidated Master Preview",
+            "📌 Consolidated Master",
+            "📊 Comparison Tables (MoM)",
+            "📈 Interactive Trend Analytics",
             "🎯 Campaign Performance", 
             "📢 Ad Type Performance",
-            "🔎 Search Term / Keyword Performance",
-            "📅 Weekly Performance Trend"
+            "🔎 Keyword Performance",
+            "📅 Weekly Trend"
         ])
 
         # TAB 1: Raw Files Preview
@@ -404,214 +354,241 @@ if uploaded_files:
                 sheets = raw_files_dict[selected_file_name]
                 selected_sheet = st.selectbox("Select Sheet Tab:", list(sheets.keys()))
                 if selected_sheet:
-                    st.write(f"Showing raw data preview for **{selected_file_name}** ➔ **{selected_sheet}** ({len(sheets[selected_sheet])} rows):")
                     st.dataframe(sheets[selected_sheet].head(100), use_container_width=True)
 
-        # TAB 2: Consolidated Master Dataset Preview
+        # TAB 2: Consolidated Master Dataset
         with main_tab2:
-            st.caption("Preview the combined dataset across all uploaded files. Yellow highlighted cells in 'Match Type' indicate values filled via fallback logic (Targeting Type ➔ Tab Name).")
+            st.caption("Preview the combined dataset across all uploaded files.")
             preview_clean_df = final_df.drop(columns=['_impressions', '_direct_atc', '_indirect_atc', '_atc', '_direct_orders', '_indirect_orders', '_orders', '_direct_sales', '_indirect_sales', '_sales', '_budget_consumed', '_date_dt', 'Ad Type Combined'], errors='ignore')
-            st.write(f"Total Rows Consolidated: **{len(preview_clean_df):,}**")
-            
-            st.dataframe(highlight_filled_cells(preview_clean_df.head(100)), use_container_width=True)
+            st.dataframe(preview_clean_df.head(100), use_container_width=True)
 
-        # TAB 3: Campaign Performance
+        # TAB 3: Month-on-Month Comparison Tables (DOWNLOADABLE SEPARATELY)
         with main_tab3:
-            st.caption("Aggregated performance metrics per campaign.")
+            st.subheader("📊 Month-on-Month Comparison Tables")
+            st.caption("View side-by-side MoM metrics for Campaign, Ad Type, Keywords, and Weeks. Download each table separately.")
+
+            comp_sub_tab1, comp_sub_tab2, comp_sub_tab3, comp_sub_tab4 = st.tabs([
+                "🎯 Campaign Comparison",
+                "📢 Ad Type Comparison",
+                "🔎 Keyword Comparison",
+                "📅 Weekly Comparison"
+            ])
+
+            # 1. Campaign MoM Comparison
+            with comp_sub_tab1:
+                st.markdown("#### Campaign Month-on-Month Comparison Table")
+                if 'Campaign Name' in final_df.columns:
+                    camp_pivot = create_mom_comparison_table(final_df, 'Campaign Name')
+                    st.dataframe(camp_pivot, use_container_width=True)
+                    
+                    excel_camp_pivot = convert_pivot_to_excel(camp_pivot, sheet_name="Campaign_MoM")
+                    st.download_button(
+                        label="📥 Download Campaign Comparison Table (.xlsx)",
+                        data=excel_camp_pivot,
+                        file_name="Campaign_MoM_Comparison_Report.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        key="btn_dl_camp_pivot"
+                    )
+                else:
+                    st.info("No Campaign Name column found.")
+
+            # 2. Ad Type MoM Comparison
+            with comp_sub_tab2:
+                st.markdown("#### Ad Type Month-on-Month Comparison Table")
+                if 'Ad Type Combined' in final_df.columns:
+                    ad_pivot = create_mom_comparison_table(final_df, 'Ad Type Combined')
+                    st.dataframe(ad_pivot, use_container_width=True)
+                    
+                    excel_ad_pivot = convert_pivot_to_excel(ad_pivot, sheet_name="AdType_MoM")
+                    st.download_button(
+                        label="📥 Download Ad Type Comparison Table (.xlsx)",
+                        data=excel_ad_pivot,
+                        file_name="Ad_Type_MoM_Comparison_Report.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        key="btn_dl_ad_pivot"
+                    )
+
+            # 3. Keyword MoM Comparison
+            with comp_sub_tab3:
+                st.markdown("#### Keyword / Search Term Month-on-Month Comparison Table")
+                kw_col = None
+                for c in ['Search Term', 'Keyword', 'Targeting Value']:
+                    if c in final_df.columns:
+                        kw_col = c
+                        break
+                if kw_col:
+                    kw_pivot = create_mom_comparison_table(final_df, kw_col)
+                    st.dataframe(kw_pivot, use_container_width=True)
+                    
+                    excel_kw_pivot = convert_pivot_to_excel(kw_pivot, sheet_name="Keyword_MoM")
+                    st.download_button(
+                        label="📥 Download Keyword Comparison Table (.xlsx)",
+                        data=excel_kw_pivot,
+                        file_name="Keyword_MoM_Comparison_Report.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        key="btn_dl_kw_pivot"
+                    )
+                else:
+                    st.info("No Keyword or Search Term column found.")
+
+            # 4. Weekly MoM Comparison
+            with comp_sub_tab4:
+                st.markdown("#### Weekly Month-on-Month Comparison Table")
+                if 'Week' in final_df.columns and final_df['Week'].notna().any():
+                    week_pivot = create_mom_comparison_table(final_df, 'Week')
+                    st.dataframe(week_pivot, use_container_width=True)
+                    
+                    excel_week_pivot = convert_pivot_to_excel(week_pivot, sheet_name="Weekly_MoM")
+                    st.download_button(
+                        label="📥 Download Weekly Comparison Table (.xlsx)",
+                        data=excel_week_pivot,
+                        file_name="Weekly_MoM_Comparison_Report.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        key="btn_dl_week_pivot"
+                    )
+
+        # TAB 4: NEW - Multi-Metric & Multi-Month Interactive Dot/Line Trend Analytics
+        with main_tab4:
+            st.subheader("📈 Interactive Multi-Metric & Multi-Month Dot Trend Analytics")
+            st.caption("Select multiple months and metrics to compare performance across time with dot-line trend graphs.")
+
+            all_df_months = sorted(list(final_df['Month'].dropna().unique()))
+            selected_trend_months = st.multiselect(
+                "Select Months to Include in Trend Analysis:",
+                options=all_df_months,
+                default=all_df_months
+            )
+
+            metric_map = {
+                'Sales (₹)': '_sales',
+                'Spends (₹)': '_budget_consumed',
+                'ROAS': 'ROAS',
+                'Orders': '_orders',
+                'Add To Cart (ATC)': '_atc',
+                'Impressions': '_impressions',
+                'ACOS (%)': 'ACOS',
+                'CPM (₹)': 'CPM'
+            }
+
+            selected_trend_metrics = st.multiselect(
+                "Select Metrics to Display on Dot Trend Line:",
+                options=list(metric_map.keys()),
+                default=['Sales (₹)', 'Spends (₹)', 'ROAS']
+            )
+
+            if selected_trend_months and selected_trend_metrics:
+                trend_df = final_df[final_df['Month'].isin(selected_trend_months)].copy()
+
+                monthly_summary = trend_df.groupby('Month').agg(
+                    _impressions=('_impressions', 'sum'),
+                    _atc=('_atc', 'sum'),
+                    _orders=('_orders', 'sum'),
+                    _budget_consumed=('_budget_consumed', 'sum'),
+                    _sales=('_sales', 'sum')
+                ).reset_index()
+
+                monthly_summary['CPM'] = monthly_summary.apply(lambda r: round((r['_budget_consumed'] / r['_impressions']) * 1000, 2) if r['_impressions'] > 0 else 0.0, axis=1)
+                monthly_summary['ROAS'] = monthly_summary.apply(lambda r: round(r['_sales'] / r['_budget_consumed'], 2) if r['_budget_consumed'] > 0 else 0.0, axis=1)
+                monthly_summary['ACOS'] = monthly_summary.apply(lambda r: round((r['_budget_consumed'] / r['_sales']) * 100, 2) if r['_sales'] > 0 else 0.0, axis=1)
+
+                month_order = {m: i for i, m in enumerate(all_df_months)}
+                monthly_summary['month_idx'] = monthly_summary['Month'].map(month_order)
+                monthly_summary = monthly_summary.sort_values('month_idx').drop(columns=['month_idx'])
+
+                # Render Data Table
+                st.markdown("#### 📊 Selected Months Data Summary")
+                disp_summary = monthly_summary.rename(columns={
+                    'Month': 'MONTH',
+                    '_impressions': 'IMPRESSIONS',
+                    '_atc': 'ATC',
+                    '_orders': 'ORDERS',
+                    '_budget_consumed': 'SPENDS',
+                    '_sales': 'SALES'
+                })
+                st.dataframe(disp_summary, use_container_width=True)
+
+                # Render Plotly Dot-Line Chart
+                st.markdown("#### 📉 Multi-Metric Straight Line Dot Trend Graph")
+                
+                fig_trend = make_subplots(specs=[[{"secondary_y": True}]])
+                palette = ['#1A73E8', '#34A853', '#EA4335', '#FBBC04', '#46BDC6', '#9334E6', '#F2994A']
+
+                for idx, metric_label in enumerate(selected_trend_metrics):
+                    col_key = metric_map[metric_label]
+                    use_sec_y = metric_label in ['ROAS', 'ACOS (%)', 'CPM (₹)']
+                    color = palette[idx % len(palette)]
+
+                    fig_trend.add_trace(
+                        go.Scatter(
+                            x=monthly_summary['Month'],
+                            y=monthly_summary[col_key],
+                            name=metric_label,
+                            mode='lines+markers+text',
+                            marker=dict(size=10, symbol='circle', color=color),
+                            line=dict(width=3, color=color),
+                            text=monthly_summary[col_key].apply(lambda v: f"{v:,.2f}" if isinstance(v, float) else f"{v:,}"),
+                            textposition="top center"
+                        ),
+                        secondary_y=use_sec_y
+                    )
+
+                fig_trend.update_layout(
+                    title="<b>Month-on-Month Multi-Metric Dot Trend Comparison</b>",
+                    template="plotly_white",
+                    height=550,
+                    hovermode="x unified",
+                    legend=dict(orientation="h", yanchor="bottom", y=1.05, xanchor="right", x=1),
+                    xaxis=dict(title="Month"),
+                    yaxis=dict(title="Volume / Amount (₹)"),
+                    yaxis2=dict(title="Rates / Ratios (ROAS, ACOS %, CPM)", overlaying="y", side="right", showgrid=False)
+                )
+
+                st.plotly_chart(fig_trend, use_container_width=True)
+            else:
+                st.info("Please select at least one Month and one Metric to display the trend analysis.")
+
+        # TAB 5: Campaign Performance
+        with main_tab5:
             if 'Campaign Name' in filtered_df.columns:
                 campaign_options = ["All"] + sorted([str(x) for x in filtered_df['Campaign Name'].dropna().unique()])
-                selected_campaign = st.selectbox("Select or Search Campaign:", campaign_options, key="campaign_filter")
-                
+                selected_campaign = st.selectbox("Select Campaign:", campaign_options, key="camp_single_filt")
                 campaign_df = compute_grouped_table(filtered_df, 'Campaign Name', selected_campaign)
                 if not campaign_df.empty:
-                    st.dataframe(style_dataframe(campaign_df), use_container_width=True, hide_index=True)
-                    
-                    excel_campaign = convert_df_to_excel(campaign_df, sheet_name="Campaign_Performance")
-                    st.download_button(
-                        label="📥 Download Campaign Performance Excel (.xlsx)",
-                        data=excel_campaign,
-                        file_name="Campaign_Performance_Report.xlsx",
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                        key="btn_dl_campaign"
-                    )
-                else:
-                    st.info("No campaign data matching the selected criteria.")
-            else:
-                st.info("No 'Campaign Name' column found in dataset.")
+                    st.dataframe(campaign_df, use_container_width=True, hide_index=True)
 
-        # TAB 4: Ad Type Performance
-        with main_tab4:
-            st.caption("Aggregated performance & share analysis across Ad Types & Match Types.")
+        # TAB 6: Ad Type Performance
+        with main_tab6:
             if 'Ad Type Combined' in filtered_df.columns:
                 adtype_options = ["All"] + sorted([str(x) for x in filtered_df['Ad Type Combined'].dropna().unique()])
-                selected_adtype = st.selectbox("Select or Search Ad Type / Targeting Type:", adtype_options, key="adtype_filter")
-                
+                selected_adtype = st.selectbox("Select Ad Type:", adtype_options, key="ad_single_filt")
                 adtype_df = compute_grouped_table(filtered_df, 'Ad Type Combined', selected_adtype)
                 if not adtype_df.empty:
-                    st.dataframe(style_dataframe(adtype_df), use_container_width=True, hide_index=True)
-                    
-                    st.markdown("#### 🥧 Ad Type Share Breakdown")
-                    blue_palette = ['#03045E', '#0077B6', '#0096C7', '#00B4D8', '#48CAE4', '#90E0EF', '#ADE8F4', '#CAF0F8']
-                    
-                    pie_fig = make_subplots(
-                        rows=1, cols=2,
-                        specs=[[{"type": "domain"}, {"type": "domain"}]],
-                        subplot_titles=["<b>Spends Share by Ad Type</b>", "<b>Sales Share by Ad Type</b>"]
-                    )
+                    st.dataframe(adtype_df, use_container_width=True, hide_index=True)
 
-                    pie_fig.add_trace(
-                        go.Pie(
-                            labels=adtype_df['MATCH / AD TYPE'],
-                            values=adtype_df['SPENDS'],
-                            name="Spends Share",
-                            hole=0.4,
-                            marker=dict(colors=blue_palette, line=dict(color='#FFFFFF', width=2)),
-                            textinfo="label+value+percent",
-                            texttemplate="%{label}<br>₹%{value:,.2f}<br>(%{percent})",
-                            hovertemplate="<b>%{label}</b><br>Spends: ₹%{value:,.2f}<br>Share: %{percent}<extra></extra>"
-                        ),
-                        row=1, col=1
-                    )
-
-                    pie_fig.add_trace(
-                        go.Pie(
-                            labels=adtype_df['MATCH / AD TYPE'],
-                            values=adtype_df['SALES'],
-                            name="Sales Share",
-                            hole=0.4,
-                            marker=dict(colors=blue_palette, line=dict(color='#FFFFFF', width=2)),
-                            textinfo="label+value+percent",
-                            texttemplate="%{label}<br>₹%{value:,.2f}<br>(%{percent})",
-                            hovertemplate="<b>%{label}</b><br>Sales: ₹%{value:,.2f}<br>Share: %{percent}<extra></extra>"
-                        ),
-                        row=1, col=2
-                    )
-
-                    pie_fig.update_layout(
-                        height=520,
-                        template="plotly_white",
-                        showlegend=True,
-                        legend=dict(orientation="h", yanchor="bottom", y=-0.18, xanchor="center", x=0.5),
-                        margin=dict(l=20, r=20, t=50, b=60)
-                    )
-
-                    st.plotly_chart(pie_fig, use_container_width=True)
-
-                    excel_adtype = convert_df_to_excel(adtype_df, sheet_name="Ad_Type_Performance")
-                    st.download_button(
-                        label="📥 Download Ad Type Performance Excel (.xlsx)",
-                        data=excel_adtype,
-                        file_name="Ad_Type_Performance_Report.xlsx",
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                        key="btn_dl_adtype"
-                    )
-                else:
-                    st.info("No Ad Type data matching the selected criteria.")
-            else:
-                st.info("No Ad Type data found.")
-
-        # TAB 5: Keyword / Search Term Performance
-        with main_tab5:
-            st.caption("Performance across search terms / target keywords.")
+        # TAB 7: Keyword Performance
+        with main_tab7:
             kw_col = None
-            for col_candidate in ['Search Term', 'Keyword', 'Targeting Value']:
-                if col_candidate in filtered_df.columns:
-                    kw_col = col_candidate
+            for c in ['Search Term', 'Keyword', 'Targeting Value']:
+                if c in filtered_df.columns:
+                    kw_col = c
                     break
-            
             if kw_col:
                 kw_options = ["All"] + sorted([str(x) for x in filtered_df[kw_col].dropna().unique()])
-                selected_kw = st.selectbox(f"Select or Search {kw_col}:", kw_options, key="kw_filter")
-                
+                selected_kw = st.selectbox(f"Select {kw_col}:", kw_options, key="kw_single_filt")
                 search_df = compute_grouped_table(filtered_df, kw_col, selected_kw)
                 if not search_df.empty:
-                    st.dataframe(style_dataframe(search_df), use_container_width=True, hide_index=True, height=500)
-                    
-                    excel_search = convert_df_to_excel(search_df, sheet_name="Search_Term_Performance")
-                    st.download_button(
-                        label="📥 Download Search Term Performance Excel (.xlsx)",
-                        data=excel_search,
-                        file_name="Search_Term_Performance_Report.xlsx",
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                        key="btn_dl_search"
-                    )
-                else:
-                    st.info("No search term data matching the selected criteria.")
-            else:
-                st.info("No Search Term or Keyword column found in the dataset.")
+                    st.dataframe(search_df, use_container_width=True, hide_index=True)
 
-        # TAB 6: Weekly Performance Trend
-        with main_tab6:
-            st.caption("Weekly aggregated performance trend (Week 1 through Week 5).")
-            
+        # TAB 8: Weekly Performance Trend
+        with main_tab8:
             if 'Week' in filtered_df.columns and filtered_df['Week'].notna().any():
                 weekly_df = compute_grouped_table(filtered_df, 'Week', "All")
-                
-                week_order = ['Week 1', 'Week 2', 'Week 3', 'Week 4', 'Week 5']
-                weekly_df['Week_Cat'] = pd.Categorical(weekly_df['WEEK'], categories=week_order, ordered=True)
-                weekly_df = weekly_df.sort_values('Week_Cat').drop(columns=['Week_Cat'])
-
-                fig = make_subplots(specs=[[{"secondary_y": True}]])
-
-                fig.add_trace(
-                    go.Bar(
-                        x=weekly_df['WEEK'],
-                        y=weekly_df['SPENDS'],
-                        name='Spends (₹)',
-                        marker=dict(color='#4285F4', line=dict(color='#1A73E8', width=1.5)),
-                        text=[f"₹{v:,.0f}" for v in weekly_df['SPENDS']],
-                        textposition='auto'
-                    ),
-                    secondary_y=False
-                )
-
-                fig.add_trace(
-                    go.Bar(
-                        x=weekly_df['WEEK'],
-                        y=weekly_df['SALES'],
-                        name='Sales (₹)',
-                        marker=dict(color='#34A853', line=dict(color='#1E8E3E', width=1.5)),
-                        text=[f"₹{v:,.0f}" for v in weekly_df['SALES']],
-                        textposition='auto'
-                    ),
-                    secondary_y=False
-                )
-
-                fig.add_trace(
-                    go.Scatter(
-                        x=weekly_df['WEEK'],
-                        y=weekly_df['ROAS'],
-                        name='ROAS',
-                        mode='lines+markers+text',
-                        line=dict(color='#EA4335', width=3),
-                        marker=dict(size=8, color='#EA4335'),
-                        text=[f"{v:.2f}x" for v in weekly_df['ROAS']],
-                        textposition='top center'
-                    ),
-                    secondary_y=True
-                )
-
-                fig.update_layout(
-                    title=dict(text="📊 Weekly Budget Spent vs Sales & ROAS Trend", font=dict(size=18, color="#202124")),
-                    barmode='group',
-                    template='plotly_white',
-                    height=520,
-                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-                    xaxis=dict(title="Week Bucket"),
-                    yaxis=dict(title="Amount (₹)", showgrid=True),
-                    yaxis2=dict(title="ROAS", overlaying="y", side="right", showgrid=False)
-                )
-
-                st.plotly_chart(fig, use_container_width=True)
-                st.dataframe(style_dataframe(weekly_df), use_container_width=True, hide_index=True)
-            else:
-                st.info("No valid Date column found or dates could not be parsed to assign week buckets.")
+                st.dataframe(weekly_df, use_container_width=True, hide_index=True)
 
         st.divider()
 
-        # Output Excel Generation with Formatting for Fallback Replacements
-        st.subheader("💾 Download Consolidated Excel Workbook")
-        
+        # Output Workbook Download
+        st.subheader("💾 Download Consolidated Master Workbook")
         buffer_multi = io.BytesIO()
         with pd.ExcelWriter(buffer_multi, engine='openpyxl') as writer:
             for raw_tab_name, df_list in consolidated_raw_tabs.items():
@@ -620,23 +597,9 @@ if uploaded_files:
                 combined_raw_tab_df.to_excel(writer, sheet_name=clean_sheet_name, index=False)
             
             master_export_df = final_df.drop(columns=['_impressions', '_direct_atc', '_indirect_atc', '_atc', '_direct_orders', '_indirect_orders', '_orders', '_direct_sales', '_indirect_sales', '_sales', '_budget_consumed', '_date_dt', 'Ad Type Combined'], errors='ignore')
-            
-            master_sheet_name = 'Consolidated_Master'
-            master_export_df.to_excel(writer, sheet_name=master_sheet_name, index=False)
-            
-            # Apply yellow highlight formatting in Excel for fallback-filled Match Type values
-            if '_filled_fallback' in master_export_df.columns and match_col and match_col in master_export_df.columns:
-                worksheet = writer.sheets[master_sheet_name]
-                from openpyxl.styles import PatternFill
-                yellow_fill = PatternFill(start_color="FFF2CC", end_color="FFF2CC", fill_type="solid")
-                
-                col_idx = master_export_df.columns.get_loc(match_col) + 1  # 1-indexed for openpyxl
-                for row_idx, filled in enumerate(master_export_df['_filled_fallback'], start=2):
-                    if filled:
-                        worksheet.cell(row=row_idx, column=col_idx).fill = yellow_fill
+            master_export_df.to_excel(writer, sheet_name='Consolidated_Master', index=False)
 
         buffer_multi.seek(0)
-
         st.download_button(
             label="📥 Download Complete Excel Workbook (Consolidated Raw Tabs + Final Master Tab)",
             data=buffer_multi,
