@@ -25,11 +25,31 @@ st.markdown("""
 st.title("📊 Blinkit Ad Report Merger & Analytics")
 st.write("Upload up to 5 monthly Excel ad campaign spreadsheets (.xlsx, .xls, .xlsb, .xlsm). Preview raw & consolidated sheets, inspect campaign performance, and view weekly trend lines.")
 
-# Helper function to convert dataframe to downloadable Excel bytes
-def convert_df_to_excel(df, sheet_name="Performance"):
+# Helper function to convert dataframe to downloadable Excel bytes with custom formatting/highlighting
+def convert_df_to_excel(df, sheet_name="Performance", highlight_col=None):
     buffer = io.BytesIO()
     with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
         df.to_excel(writer, sheet_name=sheet_name, index=False)
+        
+        # Highlight NA-filled rows in Excel if requested
+        if highlight_col and '_filled_from_col_d' in df.columns:
+            workbook = writer.book
+            worksheet = writer.sheets[sheet_name]
+            from openpyxl.styles import PatternFill
+            yellow_fill = PatternFill(start_color="FFF2CC", end_color="FFF2CC", fill_type="solid")
+            
+            # Find column index for highlight_col
+            col_idx = None
+            for idx, col in enumerate(df.columns, start=1):
+                if col == highlight_col:
+                    col_idx = idx
+                    break
+            
+            if col_idx:
+                for row_idx, filled in enumerate(df['_filled_from_col_d'], start=2):  # start=2 for header
+                    if filled:
+                        worksheet.cell(row=row_idx, column=col_idx).fill = yellow_fill
+
     buffer.seek(0)
     return buffer.getvalue()
 
@@ -60,7 +80,7 @@ with col5:
 
 if uploaded_files:
     consolidated_dfs = []
-    raw_files_dict = {}  # {filename: {sheet_name: df}}
+    raw_files_dict = {}         # {filename: {sheet_name: df}}
     consolidated_raw_tabs = {}  # {sheet_name: [df1, df2, ...]}
 
     for uploaded_file in uploaded_files:
@@ -128,6 +148,27 @@ if uploaded_files:
         
         remaining_cols = [c for c in final_df.columns if c not in base_cols and c not in product_listing_cols]
         final_df = final_df.reindex(columns=base_cols + product_listing_cols + remaining_cols)
+
+        # --- FIX: NA FALLBACK LOGIC FOR COLUMN F (Ad Type / Match Type / Targeting Type) FROM COLUMN D (Tab Name) ---
+        # Identify Column F equivalent (Match Type or Targeting Type) and Column D equivalent (Tab Name)
+        col_f_name = None
+        for col_cand in ['Match Type', 'Targeting Type', 'Ad Type']:
+            if col_cand in final_df.columns:
+                col_f_name = col_cand
+                break
+        
+        if col_f_name is None and len(final_df.columns) >= 6:
+            col_f_name = final_df.columns[5]  # Positional Column F (0-indexed 5)
+
+        col_d_name = 'Tab Name' if 'Tab Name' in final_df.columns else (final_df.columns[3] if len(final_df.columns) >= 4 else None)
+
+        # Create tracking flag for filled rows
+        final_df['_filled_from_col_d'] = False
+
+        if col_f_name and col_d_name:
+            na_mask = final_df[col_f_name].isna() | (final_df[col_f_name].astype(str).str.strip().str.upper().isin(['NA', 'N/A', 'NAN', '']))
+            final_df.loc[na_mask, '_filled_from_col_d'] = True
+            final_df.loc[na_mask, col_f_name] = final_df.loc[na_mask, col_d_name]
 
         # Helper numeric extractor
         def get_numeric_col(df, possible_cols):
@@ -319,6 +360,20 @@ if uploaded_files:
             
             return styler.format(active_formats)
 
+        # Highlight function for raw & preview dataframes
+        def highlight_filled_cells(df):
+            styler = df.style
+            if '_filled_from_col_d' in df.columns and col_f_name and col_f_name in df.columns:
+                def highlight_col_f(row):
+                    styles = [''] * len(row)
+                    if row.get('_filled_from_col_d', False):
+                        f_idx = row.index.get_loc(col_f_name)
+                        styles[f_idx] = 'background-color: #FFF2CC; font-weight: bold; color: #856404;'
+                    return styles
+
+                styler = styler.apply(highlight_col_f, axis=1)
+            return styler
+
         # --- MAIN NAVIGATION TABS ---
         st.markdown("### 📑 Navigation & Performance Breakdown")
         main_tab1, main_tab2, main_tab3, main_tab4, main_tab5, main_tab6 = st.tabs([
@@ -343,10 +398,12 @@ if uploaded_files:
 
         # TAB 2: Consolidated Master Dataset Preview
         with main_tab2:
-            st.caption("Preview the combined dataset across all uploaded files before export.")
+            st.caption("Preview the combined dataset across all uploaded files before export. Yellow highlighted cells indicate values automatically filled from Tab Name (Col D) when Col F was missing/NA.")
             preview_clean_df = final_df.drop(columns=['_impressions', '_direct_atc', '_indirect_atc', '_atc', '_direct_orders', '_indirect_orders', '_orders', '_direct_sales', '_indirect_sales', '_sales', '_budget_consumed', '_date_dt', 'Ad Type Combined'], errors='ignore')
             st.write(f"Total Rows Consolidated: **{len(preview_clean_df):,}**")
-            st.dataframe(preview_clean_df.head(100), use_container_width=True)
+            
+            # Apply styling to highlight NA-replaced values in Column F
+            st.dataframe(highlight_filled_cells(preview_clean_df.head(100)), use_container_width=True)
 
         # TAB 3: Campaign Performance
         with main_tab3:
@@ -557,7 +614,7 @@ if uploaded_files:
 
         st.divider()
 
-        # Output Excel Generation (Raw reports remain untouched)
+        # Output Excel Generation with Formatting for NA Replacement
         st.subheader("💾 Download Consolidated Excel Workbook")
         
         buffer_multi = io.BytesIO()
@@ -568,8 +625,22 @@ if uploaded_files:
                 combined_raw_tab_df.to_excel(writer, sheet_name=clean_sheet_name, index=False)
             
             master_export_df = final_df.drop(columns=['_impressions', '_direct_atc', '_indirect_atc', '_atc', '_direct_orders', '_indirect_orders', '_orders', '_direct_sales', '_indirect_sales', '_sales', '_budget_consumed', '_date_dt', 'Ad Type Combined'], errors='ignore')
-            master_export_df.to_excel(writer, sheet_name='Consolidated_Master', index=False)
             
+            # Save master sheet
+            master_sheet_name = 'Consolidated_Master'
+            master_export_df.to_excel(writer, sheet_name=master_sheet_name, index=False)
+            
+            # Apply yellow highlight formatting in Excel for NA-replaced Column F values
+            if '_filled_from_col_d' in master_export_df.columns and col_f_name and col_f_name in master_export_df.columns:
+                worksheet = writer.sheets[master_sheet_name]
+                from openpyxl.styles import PatternFill
+                yellow_fill = PatternFill(start_color="FFF2CC", end_color="FFF2CC", fill_type="solid")
+                
+                col_idx = master_export_df.columns.get_loc(col_f_name) + 1  # 1-indexed for openpyxl
+                for row_idx, filled in enumerate(master_export_df['_filled_from_col_d'], start=2):
+                    if filled:
+                        worksheet.cell(row=row_idx, column=col_idx).fill = yellow_fill
+
         buffer_multi.seek(0)
 
         st.download_button(
