@@ -14,31 +14,141 @@ st.set_page_config(
     layout="wide"
 )
 
-# Custom CSS for seamless alignment and clean table structure
+# Professional blue dashboard theme + clean, centered data presentation
 st.markdown("""
 <style>
-    [data-testid="stDataFrame"] th, [data-testid="stDataFrame"] td {
+    :root {
+        --dash-blue: #0B5CAD;
+        --dash-blue-dark: #083B73;
+        --dash-blue-light: #EAF3FF;
+        --dash-border: #C9D8EA;
+        --dash-text: #17324D;
+    }
+
+    .stApp {
+        background: linear-gradient(180deg, #F7FBFF 0%, #FFFFFF 32%);
+        color: var(--dash-text);
+    }
+
+    [data-testid="stHeader"] {
+        background: rgba(255,255,255,0.92);
+    }
+
+    h1, h2, h3 {
+        color: var(--dash-blue-dark) !important;
+        font-weight: 700 !important;
+    }
+
+    [data-testid="stMetric"] {
+        background: linear-gradient(135deg, #FFFFFF 0%, #EEF6FF 100%);
+        border: 1px solid var(--dash-border);
+        border-left: 5px solid var(--dash-blue);
+        border-radius: 12px;
+        padding: 14px 18px;
+        box-shadow: 0 3px 12px rgba(11, 92, 173, 0.08);
+    }
+
+    [data-testid="stMetricLabel"] {
+        color: #52708D !important;
+        font-weight: 600 !important;
+    }
+
+    [data-testid="stMetricValue"] {
+        color: var(--dash-blue-dark) !important;
+        font-weight: 750 !important;
+    }
+
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 6px;
+        background: #EAF3FF;
+        border: 1px solid var(--dash-border);
+        border-radius: 10px;
+        padding: 5px;
+    }
+
+    .stTabs [data-baseweb="tab"] {
+        height: 42px;
+        border-radius: 7px;
+        color: #315A7D;
+        font-weight: 600;
+    }
+
+    .stTabs [aria-selected="true"] {
+        background: var(--dash-blue) !important;
+        color: #FFFFFF !important;
+    }
+
+    [data-testid="stFileUploader"] {
+        background: #FFFFFF;
+        border: 1px solid var(--dash-border);
+        border-radius: 12px;
+        padding: 8px;
+        box-shadow: 0 2px 8px rgba(11, 92, 173, 0.06);
+    }
+
+    [data-testid="stFileUploaderDropzone"] {
+        background: #F5F9FF;
+        border: 1px dashed #8FB6DC;
+        border-radius: 9px;
+    }
+
+    [data-testid="stFileUploader"] button,
+    .stDownloadButton button,
+    .stButton button {
+        background: linear-gradient(135deg, #0B5CAD, #083B73) !important;
+        color: #FFFFFF !important;
+        border: 0 !important;
+        border-radius: 8px !important;
+        font-weight: 650 !important;
+        box-shadow: 0 2px 7px rgba(11, 92, 173, 0.20);
+    }
+
+    [data-testid="stFileUploader"] button:hover,
+    .stDownloadButton button:hover,
+    .stButton button:hover {
+        background: #062F5B !important;
+        color: #FFFFFF !important;
+    }
+
+    [data-testid="stDataFrame"] {
+        border: 1px solid var(--dash-border);
+        border-radius: 10px;
+        overflow: hidden;
+        box-shadow: 0 2px 9px rgba(11, 92, 173, 0.06);
+    }
+
+    [data-testid="stDataFrame"] th,
+    [data-testid="stDataFrame"] td {
         text-align: center !important;
         vertical-align: middle !important;
+    }
+
+    [data-testid="stDataFrame"] th {
+        background: #DCEBFA !important;
+        color: #083B73 !important;
+        font-weight: 700 !important;
+    }
+
+    [data-baseweb="select"] > div {
+        border-color: #AFC7DF !important;
+        border-radius: 8px !important;
+    }
+
+    [data-testid="stRadio"] label,
+    [data-testid="stSelectbox"] label,
+    [data-testid="stMultiSelect"] label {
+        color: #315A7D !important;
+        font-weight: 600 !important;
+    }
+
+    hr {
+        border-color: #D7E4F2 !important;
     }
 </style>
 """, unsafe_allow_html=True)
 
 st.title("📊 Blinkit Ad Report Merger & Analytics")
 st.write("Upload up to 5 monthly Excel ad campaign spreadsheets (.xlsx, .xls, .xlsb, .xlsm). Preview raw & consolidated sheets, view Month-on-Month Comparison tables, and analyze multi-metric curve & bar trend comparisons.")
-
-# Helper function to sort month names chronologically in descending order
-def sort_months_descending(months_list):
-    month_order = {
-        'JANUARY': 1, 'FEBRUARY': 2, 'MARCH': 3, 'APRIL': 4,
-        'MAY': 5, 'JUNE': 6, 'JULY': 7, 'AUGUST': 8,
-        'SEPTEMBER': 9, 'OCTOBER': 10, 'NOVEMBER': 11, 'DECEMBER': 12
-    }
-    def get_sort_key(m):
-        m_upper = str(m).strip().upper()
-        return month_order.get(m_upper, 0)
-    
-    return sorted(list(months_list), key=get_sort_key, reverse=True)
 
 # Helper function to style downloadable Excel Pivot tables cleanly
 def style_and_export_pivot(pivot_df, sheet_name="Comparison"):
@@ -79,7 +189,7 @@ def style_and_export_pivot(pivot_df, sheet_name="Comparison"):
         ws.cell(row=1, column=1).border = thin_border
         
         current_col = 2
-        for month in pivot_df.columns.levels[0]:
+        for month in pivot_df.columns.get_level_values(0).unique():
             sub_cols = [c for c in pivot_df.columns if c[0] == month]
             num_sub = len(sub_cols)
             if num_sub > 1:
@@ -125,20 +235,13 @@ def style_and_export_pivot(pivot_df, sheet_name="Comparison"):
                 val_cell.alignment = align_center
                 val_cell.border = thin_border
 
-                metric_str = str(m_col).strip().upper()
                 if isinstance(val, (int, float, np.number)):
-                    if metric_str == 'ACOS':
+                    if str(m_col).upper() == 'ACOS':
                         val_cell.value = val / 100.0 if val > 1 else val
                         val_cell.number_format = '0.00%'
-                    elif metric_str in ['CPM', 'IMPRESSIONS', 'ATC', 'ORDERS']:
+                    elif str(m_col).upper() == 'CPM':
                         val_cell.value = round(val)
                         val_cell.number_format = '#,##0'
-                    elif metric_str in ['SPENDS', 'SALES']:
-                        val_cell.value = round(val, 2)
-                        val_cell.number_format = '₹#,##0.00'
-                    elif metric_str == 'ROAS':
-                        val_cell.value = round(val, 2)
-                        val_cell.number_format = '0.00"x"'
                     else:
                         val_cell.value = round(val, 2)
                         val_cell.number_format = '#,##0.00' if isinstance(val, float) else '#,##0'
@@ -161,19 +264,12 @@ def style_and_export_pivot(pivot_df, sheet_name="Comparison"):
                 val_cell.alignment = align_center
                 val_cell.border = thin_border
                 
-                col_str = str(col_name).strip().upper()
-                if col_str == 'ACOS' and not is_pct_row and isinstance(val, (int, float, np.number)):
+                if str(col_name).upper() == 'ACOS' and not is_pct_row and isinstance(val, (int, float, np.number)):
                     val_cell.value = val / 100.0 if val > 1 else val
                     val_cell.number_format = '0.00%'
-                elif col_str in ['CPM', 'IMPRESSIONS', 'ATC', 'ORDERS'] and not is_pct_row and isinstance(val, (int, float, np.number)):
+                elif str(col_name).upper() == 'CPM' and not is_pct_row and isinstance(val, (int, float, np.number)):
                     val_cell.value = round(val)
                     val_cell.number_format = '#,##0'
-                elif col_str in ['SPENDS', 'SALES'] and not is_pct_row and isinstance(val, (int, float, np.number)):
-                    val_cell.value = round(val, 2)
-                    val_cell.number_format = '₹#,##0.00'
-                elif col_str == 'ROAS' and not is_pct_row and isinstance(val, (int, float, np.number)):
-                    val_cell.value = round(val, 2)
-                    val_cell.number_format = '0.00"x"'
                 elif isinstance(val, float):
                     val_cell.value = round(val, 2)
                     val_cell.number_format = '#,##0.00'
@@ -243,7 +339,7 @@ def convert_all_pivots_to_excel(pivot_dict):
                 ws.cell(row=1, column=1).border = thin_border
                 
                 current_col = 2
-                for month in pivot_df.columns.levels[0]:
+                for month in pivot_df.columns.get_level_values(0).unique():
                     sub_cols = [c for c in pivot_df.columns if c[0] == month]
                     num_sub = len(sub_cols)
                     if num_sub > 1:
@@ -288,20 +384,13 @@ def convert_all_pivots_to_excel(pivot_dict):
                         val_cell.alignment = align_center
                         val_cell.border = thin_border
 
-                        metric_str = str(m_col).strip().upper()
                         if isinstance(val, (int, float, np.number)):
-                            if metric_str == 'ACOS':
+                            if str(m_col).upper() == 'ACOS':
                                 val_cell.value = val / 100.0 if val > 1 else val
                                 val_cell.number_format = '0.00%'
-                            elif metric_str in ['CPM', 'IMPRESSIONS', 'ATC', 'ORDERS']:
+                            elif str(m_col).upper() == 'CPM':
                                 val_cell.value = round(val)
                                 val_cell.number_format = '#,##0'
-                            elif metric_str in ['SPENDS', 'SALES']:
-                                val_cell.value = round(val, 2)
-                                val_cell.number_format = '₹#,##0.00'
-                            elif metric_str == 'ROAS':
-                                val_cell.value = round(val, 2)
-                                val_cell.number_format = '0.00"x"'
                             else:
                                 val_cell.value = round(val, 2)
                                 val_cell.number_format = '#,##0.00' if isinstance(val, float) else '#,##0'
@@ -323,19 +412,12 @@ def convert_all_pivots_to_excel(pivot_dict):
                         val_cell.alignment = align_center
                         val_cell.border = thin_border
                         
-                        col_str = str(col_name).strip().upper()
-                        if col_str == 'ACOS' and not is_pct_row and isinstance(val, (int, float, np.number)):
+                        if str(col_name).upper() == 'ACOS' and not is_pct_row and isinstance(val, (int, float, np.number)):
                             val_cell.value = val / 100.0 if val > 1 else val
                             val_cell.number_format = '0.00%'
-                        elif col_str in ['CPM', 'IMPRESSIONS', 'ATC', 'ORDERS'] and not is_pct_row and isinstance(val, (int, float, np.number)):
+                        elif str(col_name).upper() == 'CPM' and not is_pct_row and isinstance(val, (int, float, np.number)):
                             val_cell.value = round(val)
                             val_cell.number_format = '#,##0'
-                        elif col_str in ['SPENDS', 'SALES'] and not is_pct_row and isinstance(val, (int, float, np.number)):
-                            val_cell.value = round(val, 2)
-                            val_cell.number_format = '₹#,##0.00'
-                        elif col_str == 'ROAS' and not is_pct_row and isinstance(val, (int, float, np.number)):
-                            val_cell.value = round(val, 2)
-                            val_cell.number_format = '0.00"x"'
                         elif isinstance(val, float):
                             val_cell.value = round(val, 2)
                             val_cell.number_format = '#,##0.00'
@@ -368,22 +450,6 @@ def convert_all_pivots_to_excel(pivot_dict):
     wb.save(buffer)
     buffer.seek(0)
     return buffer.getvalue()
-
-# Formatting configuration map for Streamlit DataFrame UI rendering
-ST_COLUMN_CONFIG = {
-    'IMPRESSIONS': st.column_config.NumberColumn('IMPRESSIONS', format="%d"),
-    'Impressions': st.column_config.NumberColumn('Impressions', format="%d"),
-    'ATC': st.column_config.NumberColumn('ATC', format="%d"),
-    'ORDERS': st.column_config.NumberColumn('ORDERS', format="%d"),
-    'Orders': st.column_config.NumberColumn('Orders', format="%d"),
-    'CPM': st.column_config.NumberColumn('CPM', format="₹%d"),
-    'SPENDS': st.column_config.NumberColumn('SPENDS', format="₹%.2f"),
-    'Spends': st.column_config.NumberColumn('Spends', format="₹%.2f"),
-    'SALES': st.column_config.NumberColumn('SALES', format="₹%.2f"),
-    'Sales': st.column_config.NumberColumn('Sales', format="₹%.2f"),
-    'ROAS': st.column_config.NumberColumn('ROAS', format="%.2fx"),
-    'ACOS': st.column_config.NumberColumn('ACOS', format="%.2f%%")
-}
 
 # File Upload Section
 col1, col2, col3, col4, col5 = st.columns(5)
@@ -582,15 +648,20 @@ if uploaded_files:
             col_order = [display_name, 'IMPRESSIONS', 'CPM', 'ATC', 'ORDERS', 'SPENDS', 'SALES', 'ROAS', 'ACOS']
             
             res_df = grouped.reindex(columns=col_order)
-            res_df['IMPRESSIONS'] = res_df['IMPRESSIONS'].astype(int)
-            res_df['ATC'] = res_df['ATC'].astype(int)
-            res_df['ORDERS'] = res_df['ORDERS'].astype(int)
-            res_df['CPM'] = res_df['CPM'].astype(int)
             res_df['SPENDS'] = res_df['SPENDS'].round(2)
             res_df['SALES'] = res_df['SALES'].round(2)
-            res_df['ROAS'] = res_df['ROAS'].round(2)
-            res_df['ACOS'] = res_df['ACOS'].round(2)
             return res_df
+
+        # Canonical calendar order for comparison tables: December, November, ... January.
+        MONTH_ORDER_DESC = {
+            "JANUARY": 1, "FEBRUARY": 2, "MARCH": 3, "APRIL": 4,
+            "MAY": 5, "JUNE": 6, "JULY": 7, "AUGUST": 8,
+            "SEPTEMBER": 9, "OCTOBER": 10, "NOVEMBER": 11, "DECEMBER": 12
+        }
+
+        def get_calendar_months_desc(df_input):
+            months = [str(x).strip().upper() for x in df_input['Month'].dropna().unique()]
+            return sorted(months, key=lambda x: MONTH_ORDER_DESC.get(x, -1), reverse=True)
 
         def create_mom_comparison_table(df_input, entity_col):
             if entity_col not in df_input.columns:
@@ -619,18 +690,18 @@ if uploaded_files:
             )
 
             metrics_order = ['Impressions', 'CPM', 'ATC', 'Orders', 'Spends', 'Sales', 'ROAS', 'ACOS']
-            sorted_months = sort_months_descending(df_input['Month'].dropna().unique())
+            all_months = df_input['Month'].unique()
             
             pivot_df = pivot_df.reorder_levels([1, 0], axis=1)
-            sorted_cols = pd.MultiIndex.from_product([sorted_months, metrics_order], names=['Month', 'Metric'])
+            sorted_cols = pd.MultiIndex.from_product([all_months, metrics_order], names=['Month', 'Metric'])
             pivot_df = pivot_df.reindex(columns=sorted_cols).fillna(0)
 
             grand_total_series = {}
-            for month in sorted_months:
+            for month in all_months:
                 month_df = working_df[working_df['Month'] == month]
-                total_imp = int(month_df['_impressions'].sum())
-                total_atc = int(month_df['_atc'].sum())
-                total_orders = int(month_df['_orders'].sum())
+                total_imp = month_df['_impressions'].sum()
+                total_atc = month_df['_atc'].sum()
+                total_orders = month_df['_orders'].sum()
                 total_spends = round(month_df['_budget_consumed'].sum(), 2)
                 total_sales = round(month_df['_sales'].sum(), 2)
 
@@ -639,7 +710,7 @@ if uploaded_files:
                 total_acos = round((total_spends / total_sales) * 100, 2) if total_sales > 0 else 0.0
 
                 grand_total_series[(month, 'Impressions')] = total_imp
-                grand_total_series[(month, 'CPM')] = int(total_cpm)
+                grand_total_series[(month, 'CPM')] = total_cpm
                 grand_total_series[(month, 'ATC')] = total_atc
                 grand_total_series[(month, 'Orders')] = total_orders
                 grand_total_series[(month, 'Spends')] = total_spends
@@ -668,29 +739,28 @@ if uploaded_files:
             monthly_agg['ROAS'] = monthly_agg.apply(lambda r: round(r['Sales'] / r['Spends'], 2) if r['Spends'] > 0 else 0.0, axis=1)
             monthly_agg['ACOS'] = monthly_agg.apply(lambda r: round((r['Spends'] / r['Sales']) * 100, 2) if r['Sales'] > 0 else 0.0, axis=1)
 
-            monthly_agg['Impressions'] = monthly_agg['Impressions'].astype(int)
-            monthly_agg['CPM'] = monthly_agg['CPM'].astype(int)
-            monthly_agg['ATC'] = monthly_agg['ATC'].astype(int)
-            monthly_agg['Orders'] = monthly_agg['Orders'].astype(int)
             monthly_agg['Spends'] = monthly_agg['Spends'].round(2)
             monthly_agg['Sales'] = monthly_agg['Sales'].round(2)
-            monthly_agg['ROAS'] = monthly_agg['ROAS'].round(2)
 
-            sorted_months = sort_months_descending(df_input['Month'].dropna().unique())
-            monthly_agg['month_order'] = monthly_agg['Month'].map(lambda x: sorted_months.index(x) if x in sorted_months else 99)
+            all_months = get_calendar_months_desc(df_input)
+            month_order = {m: i for i, m in enumerate(all_months)}
+            monthly_agg['month_order'] = monthly_agg['Month'].map(
+                lambda x: month_order.get(str(x).strip().upper(), 99)
+            )
             monthly_agg = monthly_agg.sort_values('month_order').drop(columns=['month_order'])
 
             col_order = ['Month', 'Impressions', 'CPM', 'ATC', 'Orders', 'Spends', 'Sales', 'ROAS', 'ACOS']
             monthly_agg = monthly_agg[col_order]
 
             if len(monthly_agg) >= 2:
-                prev_row = monthly_agg.iloc[-2]
-                curr_row = monthly_agg.iloc[-1]
+                # With descending calendar order, latest month is first and previous month is second.
+                curr_row = monthly_agg.iloc[0]
+                prev_row = monthly_agg.iloc[1]
 
                 pct_row = {'Month': 'Percentage %'}
                 for metric in ['Impressions', 'CPM', 'ATC', 'Orders', 'Spends', 'Sales', 'ROAS', 'ACOS']:
-                    prev_val = float(str(prev_row[metric]).replace('%', ''))
-                    curr_val = float(str(curr_row[metric]).replace('%', ''))
+                    prev_val = prev_row[metric]
+                    curr_val = curr_row[metric]
                     if prev_val > 0:
                         pct_change = round(((curr_val - prev_val) / prev_val) * 100)
                         pct_row[metric] = f"{pct_change}%" if pct_change <= 0 else f"+{pct_change}%"
@@ -699,6 +769,7 @@ if uploaded_files:
                 
                 monthly_agg = pd.concat([monthly_agg, pd.DataFrame([pct_row])], ignore_index=True)
 
+            monthly_agg['ACOS'] = monthly_agg['ACOS'].apply(lambda v: f"{v:.2f}%" if isinstance(v, (int, float)) else str(v))
             return monthly_agg
 
         def render_unified_single_table(df_to_show, key_prefix="mom", expandable_col=None):
@@ -741,14 +812,14 @@ if uploaded_files:
 
             def highlight_percentage_cells(val):
                 val_str = str(val).strip()
-                if '%' in val_str and not val_str.replace('.', '').replace('%', '').replace('-', '').isdigit():
+                if '%' in val_str:
                     if val_str.startswith('-'):
                         return 'background-color: #f8d7da; color: #721c24; font-weight: bold;'
                     elif val_str.startswith('+'):
                         return 'background-color: #d4edda; color: #155724; font-weight: bold;'
                 return ''
 
-            col_config = ST_COLUMN_CONFIG.copy()
+            col_config = {}
             if expandable_col:
                 col_config[expandable_col] = st.column_config.TextColumn(
                     expandable_col,
@@ -756,6 +827,7 @@ if uploaded_files:
                     width="large"
                 )
 
+            # Updated to support modern Pandas (.map) and older Pandas (.applymap)
             if hasattr(unified_df.style, "map"):
                 styled_unified_df = unified_df.style.map(highlight_percentage_cells)
             else:
@@ -771,32 +843,31 @@ if uploaded_files:
 
         # Dashboard Filters
         st.markdown("### 🔍 Global Dashboard Filters")
-        sorted_all_months = sort_months_descending(final_df['Month'].dropna().unique())
-        available_months = ["All Months"] + sorted_all_months
+        available_months = ["All Months"] + get_calendar_months_desc(final_df)
         selected_month = st.selectbox("Select Month Across Dashboard (Excluding Comparison Tables)", available_months)
 
         filtered_df = final_df.copy()
         if selected_month != "All Months":
             filtered_df = filtered_df[filtered_df['Month'] == selected_month]
 
-        total_impressions = int(filtered_df['_impressions'].sum())
+        total_impressions = filtered_df['_impressions'].sum()
         total_sales = round(filtered_df['_sales'].sum(), 2)
-        total_orders = int(filtered_df['_orders'].sum())
-        total_atc = int(filtered_df['_atc'].sum())
+        total_orders = filtered_df['_orders'].sum()
+        total_atc = filtered_df['_atc'].sum()
         total_budget = round(filtered_df['_budget_consumed'].sum(), 2)
         overall_roas = round((total_sales / total_budget), 2) if total_budget > 0 else 0.0
 
         st.markdown("### 📈 Overall Campaign Performance Dashboard")
         
         row1_col1, row1_col2, row1_col3 = st.columns(3)
-        with row1_col1: st.metric("Total Impressions", f"{total_impressions:,}")
+        with row1_col1: st.metric("Total Impressions", f"{int(total_impressions):,}")
         with row1_col2: st.metric("Total Sales", f"₹{total_sales:,.2f}")
         with row1_col3: st.metric("Total Budget Consumed", f"₹{total_budget:,.2f}")
 
         row2_col1, row2_col2, row2_col3 = st.columns(3)
         with row2_col1: st.metric("Overall RoAS", f"{overall_roas:.2f}x")
-        with row2_col2: st.metric("Total Orders", f"{total_orders:,}")
-        with row2_col3: st.metric("Total Add To Cart", f"{total_atc:,}")
+        with row2_col2: st.metric("Total Orders", f"{int(total_orders):,}")
+        with row2_col3: st.metric("Total Add To Cart", f"{int(total_atc):,}")
 
         st.divider()
 
@@ -948,7 +1019,7 @@ if uploaded_files:
             st.subheader("📈 Interactive Multi-Metric Trend Analytics")
             st.caption("Select multiple months and metrics to compare performance across time with smooth curved lines overlaying metric pillar columns.")
 
-            all_df_months = sort_months_descending(final_df['Month'].dropna().unique())
+            all_df_months = get_calendar_months_desc(final_df)
             selected_trend_months = st.multiselect(
                 "Select Months to Include in Trend Analysis:",
                 options=all_df_months,
@@ -987,15 +1058,14 @@ if uploaded_files:
                 monthly_summary['ROAS'] = monthly_summary.apply(lambda r: round(r['_sales'] / r['_budget_consumed'], 2) if r['_budget_consumed'] > 0 else 0.0, axis=1)
                 monthly_summary['ACOS'] = monthly_summary.apply(lambda r: round((r['_budget_consumed'] / r['_sales']) * 100, 2) if r['_sales'] > 0 else 0.0, axis=1)
                 
-                monthly_summary['_impressions'] = monthly_summary['_impressions'].astype(int)
-                monthly_summary['_atc'] = monthly_summary['_atc'].astype(int)
-                monthly_summary['_orders'] = monthly_summary['_orders'].astype(int)
-                monthly_summary['CPM'] = monthly_summary['CPM'].astype(int)
                 monthly_summary['_budget_consumed'] = monthly_summary['_budget_consumed'].round(2)
                 monthly_summary['_sales'] = monthly_summary['_sales'].round(2)
 
-                month_order = {m: i for i, m in enumerate(all_df_months)}
-                monthly_summary['month_idx'] = monthly_summary['Month'].map(month_order)
+                ordered_trend_months = get_calendar_months_desc(trend_df)
+                month_order = {m: i for i, m in enumerate(ordered_trend_months)}
+                monthly_summary['month_idx'] = monthly_summary['Month'].map(
+                    lambda x: month_order.get(str(x).strip().upper(), 99)
+                )
                 monthly_summary = monthly_summary.sort_values('month_idx').drop(columns=['month_idx'])
 
                 st.markdown("#### 📊 Selected Months Data Summary")
@@ -1007,7 +1077,7 @@ if uploaded_files:
                     '_budget_consumed': 'SPENDS',
                     '_sales': 'SALES'
                 })
-                st.dataframe(disp_summary, use_container_width=True, hide_index=True, column_config=ST_COLUMN_CONFIG)
+                st.dataframe(disp_summary, use_container_width=True, hide_index=True)
 
                 st.markdown("#### 📉 Curved Trend Line & Pillar Combination Graph")
                 
@@ -1068,7 +1138,7 @@ if uploaded_files:
                 selected_campaign = st.selectbox("Select Campaign:", campaign_options, key="camp_single_filt")
                 campaign_df = compute_grouped_table(filtered_df, 'Campaign Name', selected_campaign)
                 if not campaign_df.empty:
-                    st.dataframe(campaign_df, use_container_width=True, hide_index=True, column_config=ST_COLUMN_CONFIG)
+                    st.dataframe(campaign_df, use_container_width=True, hide_index=True)
 
         with main_tab6:
             if 'Ad Type Combined' in filtered_df.columns:
@@ -1076,7 +1146,7 @@ if uploaded_files:
                 selected_adtype = st.selectbox("Select Ad Type:", adtype_options, key="ad_single_filt")
                 adtype_df = compute_grouped_table(filtered_df, 'Ad Type Combined', selected_adtype)
                 if not adtype_df.empty:
-                    st.dataframe(adtype_df, use_container_width=True, hide_index=True, column_config=ST_COLUMN_CONFIG)
+                    st.dataframe(adtype_df, use_container_width=True, hide_index=True)
 
         with main_tab7:
             kw_col = None
@@ -1089,22 +1159,22 @@ if uploaded_files:
                 selected_kw = st.selectbox(f"Select {kw_col}:", kw_options, key="kw_single_filt")
                 search_df = compute_grouped_table(filtered_df, kw_col, selected_kw)
                 if not search_df.empty:
-                    search_config = ST_COLUMN_CONFIG.copy()
-                    search_config[kw_col.upper()] = st.column_config.TextColumn(
-                        kw_col.upper(),
-                        width="large"
-                    )
                     st.dataframe(
                         search_df,
                         use_container_width=True,
                         hide_index=True,
-                        column_config=search_config
+                        column_config={
+                            kw_col.upper(): st.column_config.TextColumn(
+                                kw_col.upper(),
+                                width="large"
+                            )
+                        }
                     )
 
         with main_tab8:
             if 'Week' in filtered_df.columns and filtered_df['Week'].notna().any():
                 weekly_df = compute_grouped_table(filtered_df, 'Week', "All")
-                st.dataframe(weekly_df, use_container_width=True, hide_index=True, column_config=ST_COLUMN_CONFIG)
+                st.dataframe(weekly_df, use_container_width=True, hide_index=True)
 
         st.divider()
 
