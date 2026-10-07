@@ -20,6 +20,7 @@ st.markdown("""
     [data-testid="stDataFrame"] th, [data-testid="stDataFrame"] td {
         text-align: center !important;
         vertical-align: middle !important;
+        white-space: nowrap !important;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -27,7 +28,7 @@ st.markdown("""
 st.title("📊 Blinkit Ad Report Merger & Analytics")
 st.write("Upload up to 5 monthly Excel ad campaign spreadsheets (.xlsx, .xls, .xlsb, .xlsm). Preview raw & consolidated sheets, view Month-on-Month Comparison tables, and analyze multi-metric curve & bar trend comparisons.")
 
-# Helper function to style downloadable Excel Pivot tables cleanly without blank gap rows
+# Helper function to style downloadable Excel Pivot tables cleanly without text wrapping
 def style_and_export_pivot(pivot_df, sheet_name="Comparison"):
     buffer = io.BytesIO()
     wb = openpyxl.Workbook()
@@ -49,8 +50,9 @@ def style_and_export_pivot(pivot_df, sheet_name="Comparison"):
     
     data_font = Font(name="Calibri", size=10, color="000000")
     
-    align_center = Alignment(horizontal="center", vertical="center", wrap_text=True)
-    align_left = Alignment(horizontal="left", vertical="center")
+    # Text wrapping disabled for headers and columns
+    align_center = Alignment(horizontal="center", vertical="center", wrap_text=False)
+    align_left = Alignment(horizontal="left", vertical="center", wrap_text=False)
     
     thin_border = Border(
         left=Side(style='thin', color='BFBFBF'),
@@ -60,7 +62,6 @@ def style_and_export_pivot(pivot_df, sheet_name="Comparison"):
     )
 
     if isinstance(pivot_df.columns, pd.MultiIndex):
-        months = pivot_df.columns.get_level_values(0)
         metrics = pivot_df.columns.get_level_values(1)
         entity_title = pivot_df.index.name if pivot_df.index.name else ""
 
@@ -98,7 +99,7 @@ def style_and_export_pivot(pivot_df, sheet_name="Comparison"):
             cell.alignment = align_center
             cell.border = thin_border
 
-        # Row 3 onwards: Direct Data Rows (No empty gap row)
+        # Row 3 onwards: Data Rows
         start_data_row = 3
         for r_idx, (idx_val, row_data) in enumerate(pivot_df.iterrows(), start=start_data_row):
             is_grand_total = (str(idx_val).strip().lower() == 'grand total')
@@ -109,17 +110,26 @@ def style_and_export_pivot(pivot_df, sheet_name="Comparison"):
             idx_cell.alignment = align_left
             idx_cell.border = thin_border
 
-            for c_idx, val in enumerate(row_data, start=2):
-                val_cell = ws.cell(row=r_idx, column=c_idx, value=val)
+            for c_idx, (m_col, val) in enumerate(zip(metrics, row_data), start=2):
+                val_cell = ws.cell(row=r_idx, column=c_idx)
                 val_cell.font = total_font if is_grand_total else data_font
                 if is_grand_total:
                     val_cell.fill = total_fill
                 val_cell.alignment = align_center
                 val_cell.border = thin_border
+
                 if isinstance(val, (int, float, np.number)):
-                    val_cell.number_format = '#,##0.00' if isinstance(val, float) else '#,##0'
+                    if str(m_col).upper() == 'ACOS':
+                        # Store as numeric percentage decimal
+                        val_cell.value = val / 100.0 if val > 1 else val
+                        val_cell.number_format = '0.00%'
+                    else:
+                        val_cell.value = round(val, 2)
+                        val_cell.number_format = '#,##0.00' if isinstance(val, float) else '#,##0'
+                else:
+                    val_cell.value = val
     else:
-        # Single level dataframe export (e.g., Monthly Comparison Summary Table)
+        # Single level dataframe export (Monthly Comparison Summary)
         for col_idx, col_name in enumerate(pivot_df.columns, start=1):
             cell = ws.cell(row=1, column=col_idx, value=str(col_name))
             cell.fill = top_header_fill
@@ -130,37 +140,55 @@ def style_and_export_pivot(pivot_df, sheet_name="Comparison"):
         for r_idx, (idx_val, row_data) in enumerate(pivot_df.iterrows(), start=2):
             is_pct_row = (str(row_data.iloc[0]).strip().lower() == 'percentage %')
             
-            for c_idx, val in enumerate(row_data, start=1):
-                val_cell = ws.cell(row=r_idx, column=c_idx, value=val)
+            for c_idx, (col_name, val) in enumerate(zip(pivot_df.columns, row_data), start=1):
+                val_cell = ws.cell(row=r_idx, column=c_idx)
                 val_cell.font = total_font if is_pct_row else data_font
                 val_cell.alignment = align_center
                 val_cell.border = thin_border
                 
+                if str(col_name).upper() == 'ACOS' and not is_pct_row and isinstance(val, (int, float, np.number)):
+                    val_cell.value = val / 100.0 if val > 1 else val
+                    val_cell.number_format = '0.00%'
+                elif isinstance(val, float):
+                    val_cell.value = round(val, 2)
+                    val_cell.number_format = '#,##0.00'
+                elif isinstance(val, (int, np.integer)):
+                    val_cell.value = val
+                    val_cell.number_format = '#,##0'
+                else:
+                    val_cell.value = val
+
                 # Apply green/red shading for Percentage % row
                 if is_pct_row and c_idx > 1:
-                    val_str = str(val).replace('%', '').strip()
+                    val_str = str(val).replace('%', '').replace('+', '').strip()
                     try:
                         num_v = float(val_str)
                         if num_v < 0:
-                            val_cell.fill = PatternFill(start_color="F8D7DA", end_color="F8D7DA", fill_type="solid") # Light Red
+                            val_cell.fill = PatternFill(start_color="F8D7DA", end_color="F8D7DA", fill_type="solid")
                             val_cell.font = Font(name="Calibri", size=10, bold=True, color="721C24")
                         elif num_v > 0:
-                            val_cell.fill = PatternFill(start_color="D4EDDA", end_color="D4EDDA", fill_type="solid") # Light Green
+                            val_cell.fill = PatternFill(start_color="D4EDDA", end_color="D4EDDA", fill_type="solid")
                             val_cell.font = Font(name="Calibri", size=10, bold=True, color="155724")
                     except ValueError:
                         pass
                 elif is_pct_row:
                     val_cell.fill = sec_header_fill
 
+    # Auto-adjust column widths without text wrapping
+    for col in ws.columns:
+        max_len = max(len(str(cell.value or '')) for cell in col)
+        col_letter = openpyxl.utils.get_column_letter(col[0].column)
+        ws.column_dimensions[col_letter].width = max(max_len + 4, 12)
+
     wb.save(buffer)
     buffer.seek(0)
     return buffer.getvalue()
 
-# Helper function to export ALL MoM Pivot Tables into a single combined Excel Workbook
+# Helper function to export ALL MoM Pivot Tables into a single Excel Workbook
 def convert_all_pivots_to_excel(pivot_dict):
     buffer = io.BytesIO()
     wb = openpyxl.Workbook()
-    wb.remove(wb.active)  # Remove default sheet
+    wb.remove(wb.active)
 
     top_header_fill = PatternFill(start_color="1F4E78", end_color="1F4E78", fill_type="solid")
     top_header_font = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
@@ -172,8 +200,8 @@ def convert_all_pivots_to_excel(pivot_dict):
     total_font = Font(name="Calibri", size=10, bold=True, color="000000")
     data_font = Font(name="Calibri", size=10, color="000000")
     
-    align_center = Alignment(horizontal="center", vertical="center", wrap_text=True)
-    align_left = Alignment(horizontal="left", vertical="center")
+    align_center = Alignment(horizontal="center", vertical="center", wrap_text=False)
+    align_left = Alignment(horizontal="left", vertical="center", wrap_text=False)
     thin_border = Border(
         left=Side(style='thin', color='BFBFBF'),
         right=Side(style='thin', color='BFBFBF'),
@@ -189,7 +217,6 @@ def convert_all_pivots_to_excel(pivot_dict):
                 metrics = pivot_df.columns.get_level_values(1)
                 entity_title = pivot_df.index.name if pivot_df.index.name else ""
 
-                # Row 1: Months
                 ws.cell(row=1, column=1, value="").fill = top_header_fill
                 ws.cell(row=1, column=1).border = thin_border
                 
@@ -209,7 +236,6 @@ def convert_all_pivots_to_excel(pivot_dict):
                         ws.cell(row=1, column=c).fill = top_header_fill
                     current_col += num_sub
 
-                # Row 2: Metrics
                 cell_a2 = ws.cell(row=2, column=1, value=str(entity_title))
                 cell_a2.fill = index_fill
                 cell_a2.font = index_font
@@ -223,7 +249,6 @@ def convert_all_pivots_to_excel(pivot_dict):
                     cell.alignment = align_center
                     cell.border = thin_border
 
-                # Row 3 onwards: Data Rows (No empty row 3)
                 for r_idx, (idx_val, row_data) in enumerate(pivot_df.iterrows(), start=3):
                     is_grand_total = (str(idx_val).strip().lower() == 'grand total')
                     
@@ -233,15 +258,23 @@ def convert_all_pivots_to_excel(pivot_dict):
                     idx_cell.alignment = align_left
                     idx_cell.border = thin_border
 
-                    for c_idx, val in enumerate(row_data, start=2):
-                        val_cell = ws.cell(row=r_idx, column=c_idx, value=val)
+                    for c_idx, (m_col, val) in enumerate(zip(metrics, row_data), start=2):
+                        val_cell = ws.cell(row=r_idx, column=c_idx)
                         val_cell.font = total_font if is_grand_total else data_font
                         if is_grand_total:
                             val_cell.fill = total_fill
                         val_cell.alignment = align_center
                         val_cell.border = thin_border
+
                         if isinstance(val, (int, float, np.number)):
-                            val_cell.number_format = '#,##0.00' if isinstance(val, float) else '#,##0'
+                            if str(m_col).upper() == 'ACOS':
+                                val_cell.value = val / 100.0 if val > 1 else val
+                                val_cell.number_format = '0.00%'
+                            else:
+                                val_cell.value = round(val, 2)
+                                val_cell.number_format = '#,##0.00' if isinstance(val, float) else '#,##0'
+                        else:
+                            val_cell.value = val
             else:
                 for col_idx, col_name in enumerate(pivot_df.columns, start=1):
                     cell = ws.cell(row=1, column=col_idx, value=str(col_name))
@@ -252,14 +285,26 @@ def convert_all_pivots_to_excel(pivot_dict):
 
                 for r_idx, (idx_val, row_data) in enumerate(pivot_df.iterrows(), start=2):
                     is_pct_row = (str(row_data.iloc[0]).strip().lower() == 'percentage %')
-                    for c_idx, val in enumerate(row_data, start=1):
-                        val_cell = ws.cell(row=r_idx, column=c_idx, value=val)
+                    for c_idx, (col_name, val) in enumerate(zip(pivot_df.columns, row_data), start=1):
+                        val_cell = ws.cell(row=r_idx, column=c_idx)
                         val_cell.font = total_font if is_pct_row else data_font
                         val_cell.alignment = align_center
                         val_cell.border = thin_border
                         
+                        if str(col_name).upper() == 'ACOS' and not is_pct_row and isinstance(val, (int, float, np.number)):
+                            val_cell.value = val / 100.0 if val > 1 else val
+                            val_cell.number_format = '0.00%'
+                        elif isinstance(val, float):
+                            val_cell.value = round(val, 2)
+                            val_cell.number_format = '#,##0.00'
+                        elif isinstance(val, (int, np.integer)):
+                            val_cell.value = val
+                            val_cell.number_format = '#,##0'
+                        else:
+                            val_cell.value = val
+
                         if is_pct_row and c_idx > 1:
-                            val_str = str(val).replace('%', '').strip()
+                            val_str = str(val).replace('%', '').replace('+', '').strip()
                             try:
                                 num_v = float(val_str)
                                 if num_v < 0:
@@ -273,11 +318,16 @@ def convert_all_pivots_to_excel(pivot_dict):
                         elif is_pct_row:
                             val_cell.fill = sec_header_fill
 
+            for col in ws.columns:
+                max_len = max(len(str(cell.value or '')) for cell in col)
+                col_letter = openpyxl.utils.get_column_letter(col[0].column)
+                ws.column_dimensions[col_letter].width = max(max_len + 4, 12)
+
     wb.save(buffer)
     buffer.seek(0)
     return buffer.getvalue()
 
-# 5 Dedicated Upload Boxes
+# 5 Upload Boxes
 col1, col2, col3, col4, col5 = st.columns(5)
 uploaded_files = []
 
@@ -316,7 +366,6 @@ if uploaded_files:
                 df = pd.read_excel(xls, sheet_name=sheet_name)
                 raw_files_dict[uploaded_file.name][sheet_name] = df.copy()
                 
-                # --- Dynamic Month Derivation ---
                 date_col = None
                 for col_candidate in ['Date', 'date', 'Day', 'DATE']:
                     if col_candidate in df.columns:
@@ -361,7 +410,7 @@ if uploaded_files:
         remaining_cols = [c for c in final_df.columns if c not in base_cols and c not in product_listing_cols]
         final_df = final_df.reindex(columns=base_cols + product_listing_cols + remaining_cols)
 
-        # --- FALLBACK LOGIC ---
+        # Fallback Logic
         match_col = 'Match Type' if 'Match Type' in final_df.columns else None
         target_col = 'Targeting Type' if 'Targeting Type' in final_df.columns else None
         tab_col = 'Tab Name' if 'Tab Name' in final_df.columns else None
@@ -395,7 +444,6 @@ if uploaded_files:
                 final_df.loc[na_match, '_filled_fallback'] = True
             match_col = 'Match Type'
 
-        # Helper numeric extractor
         def get_numeric_col(df, possible_cols):
             for col in possible_cols:
                 if col in df.columns:
@@ -417,13 +465,13 @@ if uploaded_files:
 
         final_df['_budget_consumed'] = get_numeric_col(final_df, ['Estimated Budget Consumed', 'Budget Consumed', 'Spend'])
 
-        # --- CAPITAL TO TITLE CASE FOR AD TYPE (EXACT -> Exact) ---
+        # CAPITAL TO TITLE CASE FOR AD TYPE
         if match_col and match_col in final_df.columns:
             final_df['Ad Type Combined'] = final_df[match_col].fillna("Other").astype(str).str.title()
         else:
             final_df['Ad Type Combined'] = "Other"
 
-        # --- WEEK BUCKET LOGIC WITH CUSTOM RANGE FORMAT ---
+        # WEEK FORMATTING
         date_col = None
         for col_candidate in ['Date', 'date', 'Day', 'DATE']:
             if col_candidate in final_df.columns:
@@ -446,7 +494,7 @@ if uploaded_files:
         else:
             final_df['Week'] = np.nan
 
-        # Helper function for calculating aggregate statistics
+        # Aggregation helper function with 2-decimal rounding
         def compute_grouped_table(df_subset, group_col, selected_item="All"):
             if group_col not in df_subset.columns:
                 return pd.DataFrame()
@@ -478,9 +526,13 @@ if uploaded_files:
 
             grouped = grouped.rename(columns={group_col: display_name})
             col_order = [display_name, 'IMPRESSIONS', 'CPM', 'ATC', 'ORDERS', 'SPENDS', 'SALES', 'ROAS', 'ACOS']
-            return grouped.reindex(columns=col_order)
+            
+            res_df = grouped.reindex(columns=col_order)
+            res_df['SPENDS'] = res_df['SPENDS'].round(2)
+            res_df['SALES'] = res_df['SALES'].round(2)
+            return res_df
 
-        # Helper function for Month-on-Month Comparison matrix with GRAND TOTAL anchor
+        # Month-on-Month Comparison matrix with GRAND TOTAL anchor logic
         def create_mom_comparison_table(df_input, entity_col):
             if entity_col not in df_input.columns:
                 return pd.DataFrame()
@@ -511,23 +563,18 @@ if uploaded_files:
             all_months = df_input['Month'].unique()
             
             pivot_df = pivot_df.reorder_levels([1, 0], axis=1)
-            
-            sorted_cols = pd.MultiIndex.from_product(
-                [all_months, metrics_order],
-                names=['Month', 'Metric']
-            )
-            
+            sorted_cols = pd.MultiIndex.from_product([all_months, metrics_order], names=['Month', 'Metric'])
             pivot_df = pivot_df.reindex(columns=sorted_cols).fillna(0)
 
-            # --- GRAND TOTAL ROW CALCULATION ---
+            # GRAND TOTAL ROW
             grand_total_series = {}
             for month in all_months:
                 month_df = working_df[working_df['Month'] == month]
                 total_imp = month_df['_impressions'].sum()
                 total_atc = month_df['_atc'].sum()
                 total_orders = month_df['_orders'].sum()
-                total_spends = month_df['_budget_consumed'].sum()
-                total_sales = month_df['_sales'].sum()
+                total_spends = round(month_df['_budget_consumed'].sum(), 2)
+                total_sales = round(month_df['_sales'].sum(), 2)
 
                 total_cpm = round((total_spends / total_imp) * 1000, 2) if total_imp > 0 else 0.0
                 total_roas = round(total_sales / total_spends, 2) if total_spends > 0 else 0.0
@@ -546,7 +593,7 @@ if uploaded_files:
             pivot_df.index.name = entity_col
             return pivot_df
 
-        # --- MONTHLY COMPARISON SUMMARY WITH PERCENTAGE CHANGE ROW ---
+        # Monthly Comparison Summary Table Function
         def create_monthly_summary_table(df_input):
             working_df = df_input.dropna(subset=['Month']).copy()
             if working_df.empty:
@@ -564,7 +611,9 @@ if uploaded_files:
             monthly_agg['ROAS'] = monthly_agg.apply(lambda r: round(r['Sales'] / r['Spends'], 2) if r['Spends'] > 0 else 0.0, axis=1)
             monthly_agg['ACOS'] = monthly_agg.apply(lambda r: round((r['Spends'] / r['Sales']) * 100, 2) if r['Sales'] > 0 else 0.0, axis=1)
 
-            # Reorder months based on input appearance
+            monthly_agg['Spends'] = monthly_agg['Spends'].round(2)
+            monthly_agg['Sales'] = monthly_agg['Sales'].round(2)
+
             all_months = list(df_input['Month'].unique())
             monthly_agg['month_order'] = monthly_agg['Month'].map(lambda x: all_months.index(x) if x in all_months else 99)
             monthly_agg = monthly_agg.sort_values('month_order').drop(columns=['month_order'])
@@ -572,7 +621,7 @@ if uploaded_files:
             col_order = ['Month', 'Impressions', 'CPM', 'ATC', 'Orders', 'Spends', 'Sales', 'ROAS', 'ACOS']
             monthly_agg = monthly_agg[col_order]
 
-            # Calculate Percentage % row (Latest month vs Previous month)
+            # Calculate Percentage % row
             if len(monthly_agg) >= 2:
                 prev_row = monthly_agg.iloc[-2]
                 curr_row = monthly_agg.iloc[-1]
@@ -589,11 +638,26 @@ if uploaded_files:
                 
                 monthly_agg = pd.concat([monthly_agg, pd.DataFrame([pct_row])], ignore_index=True)
 
-            # Format percentages for display
             monthly_agg['ACOS'] = monthly_agg['ACOS'].apply(lambda v: f"{v:.2f}%" if isinstance(v, (int, float)) else str(v))
             return monthly_agg
 
-        # --- GLOBAL MONTH FILTER FOR DASHBOARD ---
+        # Helper to render interactive dataframe while locking Grand Total to bottom row
+        def display_df_with_locked_grand_total(df_to_show, key_prefix="df"):
+            if df_to_show is None or df_to_show.empty:
+                return
+
+            if isinstance(df_to_show.index, pd.Index) and 'Grand Total' in df_to_show.index:
+                main_part = df_to_show.drop('Grand Total')
+                total_part = df_to_show.loc[['Grand Total']]
+
+                # Maintain Grand Total at bottom on sort
+                st.dataframe(main_part, use_container_width=True)
+                st.caption("🔒 **Grand Total Summary (Pinned):**")
+                st.dataframe(total_part, use_container_width=True)
+            else:
+                st.dataframe(df_to_show, use_container_width=True, hide_index=True)
+
+        # Dashboard Filters
         st.markdown("### 🔍 Global Dashboard Filters")
         available_months = ["All Months"] + list(final_df['Month'].dropna().unique())
         selected_month = st.selectbox("Select Month Across Dashboard (Excluding Comparison Tables)", available_months)
@@ -602,12 +666,12 @@ if uploaded_files:
         if selected_month != "All Months":
             filtered_df = filtered_df[filtered_df['Month'] == selected_month]
 
-        # Top level KPI cards
+        # Top level KPI cards rounded to 2 decimals
         total_impressions = filtered_df['_impressions'].sum()
-        total_sales = filtered_df['_sales'].sum()
+        total_sales = round(filtered_df['_sales'].sum(), 2)
         total_orders = filtered_df['_orders'].sum()
         total_atc = filtered_df['_atc'].sum()
-        total_budget = filtered_df['_budget_consumed'].sum()
+        total_budget = round(filtered_df['_budget_consumed'].sum(), 2)
         overall_roas = round((total_sales / total_budget), 2) if total_budget > 0 else 0.0
 
         st.markdown("### 📈 Overall Campaign Performance Dashboard")
@@ -624,7 +688,7 @@ if uploaded_files:
 
         st.divider()
 
-        # --- MAIN NAVIGATION TABS ---
+        # Navigation Tabs
         st.markdown("### 📑 Navigation & Performance Breakdown")
         main_tab1, main_tab2, main_tab3, main_tab4, main_tab5, main_tab6, main_tab7, main_tab8 = st.tabs([
             "📄 Raw Files Preview",
@@ -637,7 +701,6 @@ if uploaded_files:
             "📅 Weekly Trend"
         ])
 
-        # TAB 1: Raw Files Preview
         with main_tab1:
             st.caption("Inspect individual sheets tab-by-tab for each uploaded file.")
             selected_file_name = st.selectbox("Select Uploaded File to Preview:", list(raw_files_dict.keys()))
@@ -645,20 +708,17 @@ if uploaded_files:
                 sheets = raw_files_dict[selected_file_name]
                 selected_sheet = st.selectbox("Select Sheet Tab:", list(sheets.keys()))
                 if selected_sheet:
-                    st.dataframe(sheets[selected_sheet].head(100), use_container_width=True)
+                    st.dataframe(sheets[selected_sheet].head(100), use_container_width=True, hide_index=True)
 
-        # TAB 2: Consolidated Master Dataset
         with main_tab2:
             st.caption("Preview the combined dataset across all uploaded files.")
             preview_clean_df = final_df.drop(columns=['_impressions', '_direct_atc', '_indirect_atc', '_atc', '_direct_orders', '_indirect_orders', '_orders', '_direct_sales', '_indirect_sales', '_sales', '_budget_consumed', '_date_dt', 'Ad Type Combined'], errors='ignore')
-            st.dataframe(preview_clean_df.head(100), use_container_width=True)
+            st.dataframe(preview_clean_df.head(100), use_container_width=True, hide_index=True)
 
-        # TAB 3: Month-on-Month Comparison Tables
         with main_tab3:
             st.subheader("📊 Month-on-Month Comparison Tables")
             st.caption("View aggregated monthly summary & side-by-side MoM metrics for Campaign, Ad Type, Keywords, and Weeks.")
 
-            # Compute Pivot Tables
             monthly_summary_df = create_monthly_summary_table(final_df)
             camp_pivot = create_mom_comparison_table(final_df, 'Campaign Name') if 'Campaign Name' in final_df.columns else None
             ad_pivot = create_mom_comparison_table(final_df, 'Ad Type Combined') if 'Ad Type Combined' in final_df.columns else None
@@ -671,7 +731,6 @@ if uploaded_files:
             kw_pivot = create_mom_comparison_table(final_df, kw_col) if kw_col else None
             week_pivot = create_mom_comparison_table(final_df, 'Week') if ('Week' in final_df.columns and final_df['Week'].notna().any()) else None
 
-            # Consolidated Download Button at top of MoM tab
             mom_dict = {
                 "Monthly_Summary": monthly_summary_df,
                 "Campaign_MoM": camp_pivot,
@@ -700,11 +759,9 @@ if uploaded_files:
                 "📅 Weekly Comparison"
             ])
 
-            # SUB-TAB 0: Monthly Comparison Summary Table with Colored Percentage Change
             with comp_sub_tab0:
                 st.markdown("#### Monthly Comparison Summary Table")
                 if not monthly_summary_df.empty:
-                    # Style percentage row with light green for positive, light red for negative
                     def highlight_percentage_row(row):
                         if str(row['Month']).strip().lower() == 'percentage %':
                             styles = []
@@ -727,7 +784,7 @@ if uploaded_files:
                         return [''] * len(row)
 
                     styled_df = monthly_summary_df.style.apply(highlight_percentage_row, axis=1)
-                    st.dataframe(styled_df, use_container_width=True)
+                    st.dataframe(styled_df, use_container_width=True, hide_index=True)
 
                     excel_month_summary = style_and_export_pivot(monthly_summary_df, sheet_name="Monthly_Summary")
                     st.download_button(
@@ -741,7 +798,7 @@ if uploaded_files:
             with comp_sub_tab1:
                 st.markdown("#### Campaign Month-on-Month Comparison Table")
                 if camp_pivot is not None and not camp_pivot.empty:
-                    st.dataframe(camp_pivot, use_container_width=True)
+                    display_df_with_locked_grand_total(camp_pivot, "camp")
                     
                     excel_camp_pivot = style_and_export_pivot(camp_pivot, sheet_name="Campaign_MoM")
                     st.download_button(
@@ -757,7 +814,7 @@ if uploaded_files:
             with comp_sub_tab2:
                 st.markdown("#### Ad Type Month-on-Month Comparison Table")
                 if ad_pivot is not None and not ad_pivot.empty:
-                    st.dataframe(ad_pivot, use_container_width=True)
+                    display_df_with_locked_grand_total(ad_pivot, "ad")
                     
                     excel_ad_pivot = style_and_export_pivot(ad_pivot, sheet_name="AdType_MoM")
                     st.download_button(
@@ -771,7 +828,7 @@ if uploaded_files:
             with comp_sub_tab3:
                 st.markdown("#### Keyword / Search Term Month-on-Month Comparison Table")
                 if kw_pivot is not None and not kw_pivot.empty:
-                    st.dataframe(kw_pivot, use_container_width=True)
+                    display_df_with_locked_grand_total(kw_pivot, "kw")
                     
                     excel_kw_pivot = style_and_export_pivot(kw_pivot, sheet_name="Keyword_MoM")
                     st.download_button(
@@ -787,7 +844,7 @@ if uploaded_files:
             with comp_sub_tab4:
                 st.markdown("#### Weekly Month-on-Month Comparison Table")
                 if week_pivot is not None and not week_pivot.empty:
-                    st.dataframe(week_pivot, use_container_width=True)
+                    display_df_with_locked_grand_total(week_pivot, "week")
                     
                     excel_week_pivot = style_and_export_pivot(week_pivot, sheet_name="Weekly_MoM")
                     st.download_button(
@@ -798,7 +855,6 @@ if uploaded_files:
                         key="btn_dl_week_pivot"
                     )
 
-        # TAB 4: Interactive Trend Analytics
         with main_tab4:
             st.subheader("📈 Interactive Multi-Metric Trend Analytics")
             st.caption("Select multiple months and metrics to compare performance across time with smooth curved lines overlaying metric pillar columns.")
@@ -841,12 +897,14 @@ if uploaded_files:
                 monthly_summary['CPM'] = monthly_summary.apply(lambda r: round((r['_budget_consumed'] / r['_impressions']) * 1000, 2) if r['_impressions'] > 0 else 0.0, axis=1)
                 monthly_summary['ROAS'] = monthly_summary.apply(lambda r: round(r['_sales'] / r['_budget_consumed'], 2) if r['_budget_consumed'] > 0 else 0.0, axis=1)
                 monthly_summary['ACOS'] = monthly_summary.apply(lambda r: round((r['_budget_consumed'] / r['_sales']) * 100, 2) if r['_sales'] > 0 else 0.0, axis=1)
+                
+                monthly_summary['_budget_consumed'] = monthly_summary['_budget_consumed'].round(2)
+                monthly_summary['_sales'] = monthly_summary['_sales'].round(2)
 
                 month_order = {m: i for i, m in enumerate(all_df_months)}
                 monthly_summary['month_idx'] = monthly_summary['Month'].map(month_order)
                 monthly_summary = monthly_summary.sort_values('month_idx').drop(columns=['month_idx'])
 
-                # Render Data Table
                 st.markdown("#### 📊 Selected Months Data Summary")
                 disp_summary = monthly_summary.rename(columns={
                     'Month': 'MONTH',
@@ -856,9 +914,8 @@ if uploaded_files:
                     '_budget_consumed': 'SPENDS',
                     '_sales': 'SALES'
                 })
-                st.dataframe(disp_summary, use_container_width=True)
+                st.dataframe(disp_summary, use_container_width=True, hide_index=True)
 
-                # Render Plotly Curved Spline Line & Bar Combination Graph
                 st.markdown("#### 📉 Curved Trend Line & Pillar Combination Graph")
                 
                 fig_trend = make_subplots(specs=[[{"secondary_y": True}]])
@@ -875,11 +932,7 @@ if uploaded_files:
                                 x=monthly_summary['Month'],
                                 y=monthly_summary[col_key],
                                 name=f"{metric_label} (Volume)",
-                                marker=dict(
-                                    color=color,
-                                    opacity=0.7,
-                                    line=dict(color='#000000', width=1)
-                                ),
+                                marker=dict(color=color, opacity=0.7, line=dict(color='#000000', width=1)),
                                 text=monthly_summary[col_key].apply(lambda v: f"{v:,.2f}" if isinstance(v, float) else f"{v:,}"),
                                 textposition="auto"
                             ),
@@ -916,7 +969,6 @@ if uploaded_files:
             else:
                 st.info("Please select at least one Month and one Metric to display the trend analysis.")
 
-        # TAB 5: Campaign Performance
         with main_tab5:
             if 'Campaign Name' in filtered_df.columns:
                 campaign_options = ["All"] + sorted([str(x) for x in filtered_df['Campaign Name'].dropna().unique()])
@@ -925,7 +977,6 @@ if uploaded_files:
                 if not campaign_df.empty:
                     st.dataframe(campaign_df, use_container_width=True, hide_index=True)
 
-        # TAB 6: Ad Type Performance
         with main_tab6:
             if 'Ad Type Combined' in filtered_df.columns:
                 adtype_options = ["All"] + sorted([str(x) for x in filtered_df['Ad Type Combined'].dropna().unique()])
@@ -934,7 +985,6 @@ if uploaded_files:
                 if not adtype_df.empty:
                     st.dataframe(adtype_df, use_container_width=True, hide_index=True)
 
-        # TAB 7: Keyword Performance
         with main_tab7:
             kw_col = None
             for c in ['Search Term', 'Keyword', 'Targeting Value']:
@@ -948,7 +998,6 @@ if uploaded_files:
                 if not search_df.empty:
                     st.dataframe(search_df, use_container_width=True, hide_index=True)
 
-        # TAB 8: Weekly Performance Trend
         with main_tab8:
             if 'Week' in filtered_df.columns and filtered_df['Week'].notna().any():
                 weekly_df = compute_grouped_table(filtered_df, 'Week', "All")
@@ -956,7 +1005,7 @@ if uploaded_files:
 
         st.divider()
 
-        # Output Workbook Download
+        # Final Workbook Export
         st.subheader("💾 Download Consolidated Master Workbook")
         buffer_multi = io.BytesIO()
         with pd.ExcelWriter(buffer_multi, engine='openpyxl') as writer:
