@@ -634,14 +634,12 @@ if uploaded_files:
             monthly_agg['ACOS'] = monthly_agg['ACOS'].apply(lambda v: f"{v:.2f}%" if isinstance(v, (int, float)) else str(v))
             return monthly_agg
 
-        # RENDER ALL DATA IN A SINGLE UNIFIED TABLE WITH PINNED BOTTOM ROWS
         def render_unified_single_table(df_to_show, key_prefix="mom", expandable_col=None):
             if df_to_show is None or df_to_show.empty:
                 return
 
             working_df = df_to_show.copy()
 
-            # Separate core metrics from pinned Grand Total or Percentage % rows
             bottom_rows = None
             if isinstance(working_df.index, pd.Index) and 'Grand Total' in working_df.index:
                 main_df = working_df.drop('Grand Total')
@@ -653,7 +651,6 @@ if uploaded_files:
                 main_df = working_df
                 bottom_rows = None
 
-            # Quick Sort Controls
             sort_cols = [str(c) for c in main_df.columns] if not isinstance(main_df.columns, pd.MultiIndex) else [f"{c[0]} - {c[1]}" for c in main_df.columns]
             c_sort1, c_sort2 = st.columns([3, 1])
             with c_sort1:
@@ -670,13 +667,11 @@ if uploaded_files:
                 else:
                     main_df = main_df.sort_values(by=selected_sort_col, ascending=asc)
 
-            # Re-attach the bottom rows into the EXACT SAME DATAFRAME
             if bottom_rows is not None and not bottom_rows.empty:
                 unified_df = pd.concat([main_df, bottom_rows])
             else:
                 unified_df = main_df
 
-            # Apply conditional coloring for Percentage % cells directly inside the single table grid
             def highlight_percentage_cells(val):
                 val_str = str(val).strip()
                 if '%' in val_str:
@@ -694,9 +689,12 @@ if uploaded_files:
                     width="large"
                 )
 
-            styled_unified_df = unified_df.style.applymap(highlight_percentage_cells)
+            # Updated to support modern Pandas (.map) and older Pandas (.applymap)
+            if hasattr(unified_df.style, "map"):
+                styled_unified_df = unified_df.style.map(highlight_percentage_cells)
+            else:
+                styled_unified_df = unified_df.style.applymap(highlight_percentage_cells)
 
-            # Single Table Display
             st.dataframe(
                 styled_unified_df,
                 use_container_width=True,
