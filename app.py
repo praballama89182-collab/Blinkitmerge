@@ -634,31 +634,30 @@ if uploaded_files:
             monthly_agg['ACOS'] = monthly_agg['ACOS'].apply(lambda v: f"{v:.2f}%" if isinstance(v, (int, float)) else str(v))
             return monthly_agg
 
-        # RENDER TABLE WITH NATIVE HEADER CLICK SORTING & PINNED UNCHANGED BOTTOM ROWS
-        def render_table_with_locked_bottom_row(df_to_show, key_prefix="mom", expandable_col=None):
+        # RENDER ALL DATA IN A SINGLE UNIFIED TABLE WITH PINNED BOTTOM ROWS
+        def render_unified_single_table(df_to_show, key_prefix="mom", expandable_col=None):
             if df_to_show is None or df_to_show.empty:
                 return
 
             working_df = df_to_show.copy()
 
-            # Separate main sortable rows from pinned bottom row
+            # Separate core metrics from pinned Grand Total or Percentage % rows
+            bottom_rows = None
             if isinstance(working_df.index, pd.Index) and 'Grand Total' in working_df.index:
                 main_df = working_df.drop('Grand Total')
-                total_row = working_df.loc[['Grand Total']]
+                bottom_rows = working_df.loc[['Grand Total']]
             elif 'Month' in working_df.columns and 'Percentage %' in working_df['Month'].values:
                 main_df = working_df[working_df['Month'] != 'Percentage %'].copy()
-                total_row = working_df[working_df['Month'] == 'Percentage %'].copy()
+                bottom_rows = working_df[working_df['Month'] == 'Percentage %'].copy()
             else:
                 main_df = working_df
-                total_row = None
+                bottom_rows = None
 
-            # Optional dropdown selector for convenience
-            st.caption("💡 *Click any column header to sort natively. The bottom Grand Total / Percentage % row stays pinned at the bottom.*")
-            
+            # Quick Sort Controls
             sort_cols = [str(c) for c in main_df.columns] if not isinstance(main_df.columns, pd.MultiIndex) else [f"{c[0]} - {c[1]}" for c in main_df.columns]
             c_sort1, c_sort2 = st.columns([3, 1])
             with c_sort1:
-                selected_sort_col = st.selectbox("Quick Sort Column:", ["Default Order"] + sort_cols, key=f"{key_prefix}_sort_col")
+                selected_sort_col = st.selectbox("Sort Table Column:", ["Default Order"] + sort_cols, key=f"{key_prefix}_sort_col")
             with c_sort2:
                 sort_order = st.radio("Order:", ["Ascending", "Descending"], key=f"{key_prefix}_sort_ord", horizontal=True)
 
@@ -671,56 +670,40 @@ if uploaded_files:
                 else:
                     main_df = main_df.sort_values(by=selected_sort_col, ascending=asc)
 
+            # Re-attach the bottom rows into the EXACT SAME DATAFRAME
+            if bottom_rows is not None and not bottom_rows.empty:
+                unified_df = pd.concat([main_df, bottom_rows])
+            else:
+                unified_df = main_df
+
+            # Apply conditional coloring for Percentage % cells directly inside the single table grid
+            def highlight_percentage_cells(val):
+                val_str = str(val).strip()
+                if '%' in val_str:
+                    if val_str.startswith('-'):
+                        return 'background-color: #f8d7da; color: #721c24; font-weight: bold;'
+                    elif val_str.startswith('+'):
+                        return 'background-color: #d4edda; color: #155724; font-weight: bold;'
+                return ''
+
             col_config = {}
             if expandable_col:
                 col_config[expandable_col] = st.column_config.TextColumn(
                     expandable_col,
-                    help="Click column header edge to expand or view full text",
+                    help="Click edge to expand full keyword string",
                     width="large"
                 )
 
-            # Main Sortable Section
+            styled_unified_df = unified_df.style.applymap(highlight_percentage_cells)
+
+            # Single Table Display
             st.dataframe(
-                main_df,
+                styled_unified_df,
                 use_container_width=True,
-                hide_index=False if isinstance(main_df.index, pd.MultiIndex) or main_df.index.name else True,
+                hide_index=False if isinstance(unified_df.index, pd.MultiIndex) or unified_df.index.name else True,
                 column_config=col_config,
-                key=f"{key_prefix}_main_grid"
+                key=f"{key_prefix}_single_unified_grid"
             )
-
-            # Pinned Bottom Section (Grand Total / Percentage %)
-            if total_row is not None and not total_row.empty:
-                st.caption("📌 **Pinned Summary / Total Row**")
-                
-                # Apply Color Styling to Percentage % row (Light Red for negative, Light Green for positive)
-                if 'Month' in total_row.columns and 'Percentage %' in total_row['Month'].values:
-                    def highlight_percentage(row):
-                        styles = [''] * len(row)
-                        for i, val in enumerate(row):
-                            val_str = str(val).strip()
-                            if '%' in val_str:
-                                if val_str.startswith('-'):
-                                    styles[i] = 'background-color: #f8d7da; color: #721c24; font-weight: bold;'
-                                elif val_str.startswith('+') or (not val_str.startswith('0') and not val_str.startswith('-')):
-                                    styles[i] = 'background-color: #d4edda; color: #155724; font-weight: bold;'
-                        return styles
-
-                    styled_total_row = total_row.style.apply(highlight_percentage, axis=1)
-                    st.dataframe(
-                        styled_total_row,
-                        use_container_width=True,
-                        hide_index=True,
-                        column_config=col_config,
-                        key=f"{key_prefix}_total_pinned"
-                    )
-                else:
-                    st.dataframe(
-                        total_row,
-                        use_container_width=True,
-                        hide_index=False if isinstance(total_row.index, pd.MultiIndex) or total_row.index.name else True,
-                        column_config=col_config,
-                        key=f"{key_prefix}_total_pinned"
-                    )
 
         # Dashboard Filters
         st.markdown("### 🔍 Global Dashboard Filters")
@@ -825,7 +808,7 @@ if uploaded_files:
             with comp_sub_tab0:
                 st.markdown("#### Monthly Comparison Summary Table")
                 if not monthly_summary_df.empty:
-                    render_table_with_locked_bottom_row(monthly_summary_df, key_prefix="monthly_summary_tab")
+                    render_unified_single_table(monthly_summary_df, key_prefix="monthly_summary_tab")
 
                     excel_month_summary = style_and_export_pivot(monthly_summary_df, sheet_name="Monthly_Summary")
                     st.download_button(
@@ -839,7 +822,7 @@ if uploaded_files:
             with comp_sub_tab1:
                 st.markdown("#### Campaign Month-on-Month Comparison Table")
                 if camp_pivot is not None and not camp_pivot.empty:
-                    render_table_with_locked_bottom_row(camp_pivot, key_prefix="camp_pivot_tab")
+                    render_unified_single_table(camp_pivot, key_prefix="camp_pivot_tab")
                     
                     excel_camp_pivot = style_and_export_pivot(camp_pivot, sheet_name="Campaign_MoM")
                     st.download_button(
@@ -855,7 +838,7 @@ if uploaded_files:
             with comp_sub_tab2:
                 st.markdown("#### Ad Type Month-on-Month Comparison Table")
                 if ad_pivot is not None and not ad_pivot.empty:
-                    render_table_with_locked_bottom_row(ad_pivot, key_prefix="ad_pivot_tab")
+                    render_unified_single_table(ad_pivot, key_prefix="ad_pivot_tab")
                     
                     excel_ad_pivot = style_and_export_pivot(ad_pivot, sheet_name="AdType_MoM")
                     st.download_button(
@@ -869,7 +852,7 @@ if uploaded_files:
             with comp_sub_tab3:
                 st.markdown("#### Keyword / Search Term Month-on-Month Comparison Table")
                 if kw_pivot is not None and not kw_pivot.empty:
-                    render_table_with_locked_bottom_row(kw_pivot, key_prefix="kw_pivot_tab", expandable_col=kw_col)
+                    render_unified_single_table(kw_pivot, key_prefix="kw_pivot_tab", expandable_col=kw_col)
                     
                     excel_kw_pivot = style_and_export_pivot(kw_pivot, sheet_name="Keyword_MoM")
                     st.download_button(
@@ -885,7 +868,7 @@ if uploaded_files:
             with comp_sub_tab4:
                 st.markdown("#### Weekly Month-on-Month Comparison Table")
                 if week_pivot is not None and not week_pivot.empty:
-                    render_table_with_locked_bottom_row(week_pivot, key_prefix="week_pivot_tab")
+                    render_unified_single_table(week_pivot, key_prefix="week_pivot_tab")
                     
                     excel_week_pivot = style_and_export_pivot(week_pivot, sheet_name="Weekly_MoM")
                     st.download_button(
