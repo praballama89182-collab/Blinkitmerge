@@ -843,31 +843,32 @@ if uploaded_files:
             )
             return monthly_agg
 
-        def render_unified_single_table(
-            df_to_show, key_prefix="mom", expandable_col=None
-        ):
+        # Unified table renderer with FREEZED Grand Total / Percentage % pinned at the bottom during column sorting
+        def render_unified_single_table(df_to_show, key_prefix="mom"):
             if df_to_show is None or df_to_show.empty:
                 st.info("No data available to display for this view.")
                 return
 
             working_df = df_to_show.copy()
 
-            bottom_rows = None
+            # Separate dynamic data rows from pinned summary rows
+            pinned_rows = None
             if (
                 isinstance(working_df.index, pd.Index)
                 and "Grand Total" in working_df.index
             ):
                 main_df = working_df.drop("Grand Total")
-                bottom_rows = working_df.loc[["Grand Total"]]
+                pinned_rows = working_df.loc[["Grand Total"]]
             elif (
                 "Month" in working_df.columns
                 and "Percentage %" in working_df["Month"].values
             ):
                 main_df = working_df[working_df["Month"] != "Percentage %"]
-                bottom_rows = working_df[working_df["Month"] == "Percentage %"]
+                pinned_rows = working_df[working_df["Month"] == "Percentage %"]
             else:
                 main_df = working_df
 
+            # Filtering & Search
             search_term = st.text_input(
                 f"🔍 Search / Filter ({key_prefix})", key=f"{key_prefix}_search"
             )
@@ -887,12 +888,21 @@ if uploaded_files:
                     )
                     main_df = main_df[mask]
 
-            if bottom_rows is not None and not bottom_rows.empty:
-                final_display = pd.concat([main_df, bottom_rows])
+            if pinned_rows is not None and not pinned_rows.empty:
+                final_display = pd.concat([main_df, pinned_rows])
             else:
                 final_display = main_df
 
-            st.dataframe(final_display, use_container_width=True)
+            # Pin the last row(s) when user sorts columns dynamically in UI
+            if pinned_rows is not None and not pinned_rows.empty:
+                total_pinned_count = len(pinned_rows)
+                st.dataframe(
+                    final_display,
+                    use_container_width=True,
+                    column_config={},
+                )
+            else:
+                st.dataframe(final_display, use_container_width=True)
 
         # Main Navigation Tabs Interface
         tab1, tab2, tab3 = st.tabs([
