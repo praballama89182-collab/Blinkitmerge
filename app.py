@@ -744,10 +744,15 @@ if uploaded_files:
             monthly_agg['Spends'] = monthly_agg['Spends'].round(2)
             monthly_agg['Sales'] = monthly_agg['Sales'].round(2)
 
-            all_months = get_calendar_months_desc(df_input)
+            # Monthly Summary is intentionally chronological: earliest month -> latest month.
+            # Other comparison tables continue using get_calendar_months_desc() unchanged.
+            all_months = sorted(
+                [str(x).strip().upper() for x in df_input['Month'].dropna().unique()],
+                key=lambda x: MONTH_ORDER_DESC.get(x, 999)
+            )
             month_order = {m: i for i, m in enumerate(all_months)}
             monthly_agg['month_order'] = monthly_agg['Month'].map(
-                lambda x: month_order.get(str(x).strip().upper(), 99)
+                lambda x: month_order.get(str(x).strip().upper(), 999)
             )
             monthly_agg = monthly_agg.sort_values('month_order').drop(columns=['month_order'])
 
@@ -755,9 +760,9 @@ if uploaded_files:
             monthly_agg = monthly_agg[col_order]
 
             if len(monthly_agg) >= 2:
-                # With descending calendar order, latest month is first and previous month is second.
-                curr_row = monthly_agg.iloc[0]
-                prev_row = monthly_agg.iloc[1]
+                # Compare the last two chronological months, e.g. August -> September.
+                prev_row = monthly_agg.iloc[-2]
+                curr_row = monthly_agg.iloc[-1]
 
                 pct_row = {'Month': 'Percentage %'}
                 for metric in ['Impressions', 'CPM', 'ATC', 'Orders', 'Spends', 'Sales', 'ROAS', 'ACOS']:
@@ -768,11 +773,12 @@ if uploaded_files:
                         pct_row[metric] = f"{pct_change}%" if pct_change <= 0 else f"+{pct_change}%"
                     else:
                         pct_row[metric] = "0%"
-                
+
                 monthly_agg = pd.concat([monthly_agg, pd.DataFrame([pct_row])], ignore_index=True)
 
             monthly_agg['ACOS'] = monthly_agg['ACOS'].apply(lambda v: f"{v:.2f}%" if isinstance(v, (int, float)) else str(v))
             return monthly_agg
+
 
         def _format_dashboard_value(value, column_name=""):
             """Format dashboard values without showing unnecessary 6+ decimal places."""
