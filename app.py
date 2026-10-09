@@ -152,7 +152,6 @@ st.markdown("""
 st.title("📊 Blinkit Ad Report Merger & Analytics")
 st.write("Upload up to 5 monthly Excel ad campaign spreadsheets (.xlsx, .xls, .xlsb, .xlsm). Preview raw & consolidated sheets, view Month-on-Month Comparison tables, and analyze multi-metric curve & bar trend comparisons.")
 
-# Helper function to style downloadable Excel Pivot tables cleanly
 def style_and_export_pivot(pivot_df, sheet_name="Comparison"):
     buffer = io.BytesIO()
     wb = openpyxl.Workbook()
@@ -617,7 +616,7 @@ if uploaded_files:
         else:
             final_df['Week'] = np.nan
 
-        def compute_grouped_table(df_subset, group_col, selected_item="All"):
+        def compute_grouped_table(df_subset, group_col, selected_item="All", search_query=""):
             if group_col not in df_subset.columns:
                 return pd.DataFrame()
             
@@ -626,6 +625,9 @@ if uploaded_files:
             
             if selected_item and selected_item != "All":
                 df_working = df_working[df_working[group_col] == selected_item]
+
+            if search_query and search_query.strip():
+                df_working = df_working[df_working[group_col].str.contains(search_query.strip(), case=False, na=False)]
             
             if df_working.empty:
                 return pd.DataFrame()
@@ -654,7 +656,6 @@ if uploaded_files:
             res_df['SALES'] = res_df['SALES'].round(2)
             return res_df
 
-        # Canonical calendar order for comparison tables: December, November, ... January.
         MONTH_ORDER_DESC = {
             "JANUARY": 1, "FEBRUARY": 2, "MARCH": 3, "APRIL": 4,
             "MAY": 5, "JUNE": 6, "JULY": 7, "AUGUST": 8,
@@ -744,8 +745,6 @@ if uploaded_files:
             monthly_agg['Spends'] = monthly_agg['Spends'].round(2)
             monthly_agg['Sales'] = monthly_agg['Sales'].round(2)
 
-            # Monthly Summary is intentionally chronological: earliest month -> latest month.
-            # Other comparison tables continue using get_calendar_months_desc() unchanged.
             all_months = sorted(
                 [str(x).strip().upper() for x in df_input['Month'].dropna().unique()],
                 key=lambda x: MONTH_ORDER_DESC.get(x, 999)
@@ -760,7 +759,6 @@ if uploaded_files:
             monthly_agg = monthly_agg[col_order]
 
             if len(monthly_agg) >= 2:
-                # Compare the last two chronological months, e.g. August -> September.
                 prev_row = monthly_agg.iloc[-2]
                 curr_row = monthly_agg.iloc[-1]
 
@@ -779,9 +777,7 @@ if uploaded_files:
             monthly_agg['ACOS'] = monthly_agg['ACOS'].apply(lambda v: f"{v:.2f}%" if isinstance(v, (int, float)) else str(v))
             return monthly_agg
 
-
         def _format_dashboard_value(value, column_name=""):
-            """Format dashboard values without showing unnecessary 6+ decimal places."""
             if pd.isna(value):
                 return value
 
@@ -801,7 +797,6 @@ if uploaded_files:
             return value
 
         def format_dashboard_dataframe(df):
-            """Create a display-only copy with clean whole/2-decimal/percentage formatting."""
             out = df.copy()
             if isinstance(out.columns, pd.MultiIndex):
                 for col in out.columns:
@@ -866,7 +861,6 @@ if uploaded_files:
                     width="large"
                 )
 
-            # Updated to support modern Pandas (.map) and older Pandas (.applymap)
             if hasattr(unified_df.style, "map"):
                 styled_unified_df = unified_df.style.map(highlight_percentage_cells)
             else:
@@ -1123,7 +1117,6 @@ if uploaded_files:
                 
                 fig_trend = make_subplots(specs=[[{"secondary_y": True}]])
 
-                # Soft, coordinated palette: Sales/Spends are the only bars; all other metrics are trend lines.
                 metric_colors = {
                     'Sales (₹)': '#5B8DB8',
                     'Spends (₹)': '#8CB6D3',
@@ -1213,9 +1206,15 @@ if uploaded_files:
                     kw_col = c
                     break
             if kw_col:
+                st.markdown("#### 🔎 Keyword Performance & Search Filter")
+                search_box_val = st.text_input("🔍 Search by Keyword (e.g. crack):", "", key="keyword_text_search")
+                
                 kw_options = ["All"] + sorted([str(x) for x in filtered_df[kw_col].dropna().unique()])
-                selected_kw = st.selectbox(f"Select {kw_col}:", kw_options, key="kw_single_filt")
-                search_df = compute_grouped_table(filtered_df, kw_col, selected_kw)
+                selected_kw = st.selectbox(f"Select specific {kw_col}:", kw_options, key="kw_single_filt")
+                
+                effective_item = selected_kw if selected_kw != "All" else "All"
+                search_df = compute_grouped_table(filtered_df, kw_col, effective_item, search_query=search_box_val)
+                
                 if not search_df.empty:
                     st.dataframe(
                         search_df,
@@ -1228,6 +1227,8 @@ if uploaded_files:
                             )
                         }
                     )
+                else:
+                    st.info("No matching keywords found for your search query.")
 
         with main_tab8:
             if 'Week' in filtered_df.columns and filtered_df['Week'].notna().any():
