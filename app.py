@@ -735,7 +735,6 @@ if uploaded_files:
                 key=lambda x: MONTH_ORDER_DESC.get(x, 999)
             )
 
-            # If an expand_month is clicked, replace that month with its daily breakdown from Day 1 to 31
             if expand_month and expand_month in all_months and '_date_dt' in working_df.columns and working_df['_date_dt'].notna().any():
                 rows_list = []
                 for m in all_months:
@@ -820,21 +819,21 @@ if uploaded_files:
                 monthly_agg = monthly_agg[col_order]
                 monthly_agg['ACOS'] = monthly_agg['ACOS'].apply(lambda v: f"{v:.2f}%" if isinstance(v, (int, float)) else str(v))
 
-            if len(all_months) >= 2 and not expand_month:
-                prev_row = monthly_agg.iloc[-2]
-                curr_row = monthly_agg.iloc[-1]
+                if len(all_months) >= 2 and not expand_month:
+                    prev_row = monthly_agg.iloc[-2]
+                    curr_row = monthly_agg.iloc[-1]
 
-                pct_row = {'Month': 'Percentage %'}
-                for metric in ['Impressions', 'CPM', 'ATC', 'Orders', 'Spends', 'Sales', 'ROAS', 'ACOS']:
-                    prev_val = prev_row[metric]
-                    curr_val = curr_row[metric]
-                    if prev_val > 0:
-                        pct_change = round(((curr_val - prev_val) / prev_val) * 100)
-                        pct_row[metric] = f"{pct_change}%" if pct_change <= 0 else f"+{pct_change}%"
-                    else:
-                        pct_row[metric] = "0%"
+                    pct_row = {'Month': 'Percentage %'}
+                    for metric in ['Impressions', 'CPM', 'ATC', 'Orders', 'Spends', 'Sales', 'ROAS', 'ACOS']:
+                        prev_val = pd.to_numeric(prev_row[metric], errors='coerce')
+                        curr_val = pd.to_numeric(curr_row[metric], errors='coerce')
+                        if pd.notna(prev_val) and pd.notna(curr_val) and prev_val > 0:
+                            pct_change = round(((curr_val - prev_val) / prev_val) * 100)
+                            pct_row[metric] = f"{pct_change}%" if pct_change <= 0 else f"+{pct_change}%"
+                        else:
+                            pct_row[metric] = "0%"
 
-                monthly_agg = pd.concat([monthly_agg, pd.DataFrame([pct_row])], ignore_index=True)
+                    monthly_agg = pd.concat([monthly_agg, pd.DataFrame([pct_row])], ignore_index=True)
 
             return monthly_agg
 
